@@ -1,12 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router";
+import { Navigate, Route, Routes, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { useProjectFileEvents } from "../hooks/useProjectFileEvents";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
 import { configFileQueryOptions } from "../queries/config-file";
 import { getProjectQueryScope } from "../queries/project-scope";
-import { sessionQueryOptions } from "../queries/projects";
+import {
+	closeProject,
+	sessionQueryKey,
+	sessionQueryOptions,
+} from "../queries/projects";
 import { systemsQueryOptions } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
 import { Capture, ComponentCapture } from "./Capture";
@@ -22,10 +27,15 @@ import { EditorChannel } from "./EditorChannel";
 import { HomeShell } from "./HomeShell";
 import { OpenProjectPanel } from "./OpenProjectPanel";
 import { Project } from "./Project";
+import { getSystemEditorPath } from "./project/SystemDetailPane";
 import {
 	getSystemAttentionSummary,
+	getSystemAttentionToastCopy,
 	getSystemAttentionToastIds,
 } from "./system-attention-toasts";
+import { Button } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
+import { Skeleton } from "./ui/skeleton";
 
 // The system editor is large and unused by the design view, so it loads on
 // first visit to a system route.
@@ -33,15 +43,143 @@ const SystemEditor = lazy(() =>
 	import("./SystemEditor").then((module) => ({ default: module.SystemEditor })),
 );
 
+/** The system editor's rail and workspace while its code loads. */
 function SystemEditorFallback() {
 	return (
 		<div
-			role="status"
-			className="pointer-events-none absolute left-3 top-3 z-30 flex items-center gap-2 bg-slate-950 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-50"
+			className="absolute inset-0 z-10 flex min-h-0 bg-slate-100"
+			aria-busy="true"
 		>
-			<span className="size-1.5 animate-pulse bg-cyan-400" aria-hidden="true" />
-			Loading system editor
+			<aside className="flex min-h-0 w-[300px] shrink-0 flex-col border-r border-slate-200 bg-white">
+				<div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
+					<Skeleton className="h-3 w-32" />
+				</div>
+				<div className="flex flex-col gap-3 p-3">
+					<Skeleton className="h-7 w-full" />
+					<Skeleton className="h-4 w-40" />
+					<Skeleton className="h-4 w-48" />
+				</div>
+			</aside>
+			<div className="flex min-w-0 flex-1 flex-col gap-4 p-6">
+				<Skeleton className="h-6 w-48" />
+				<Skeleton className="h-32 w-full" />
+			</div>
 		</div>
+	);
+}
+
+/** The project screen's header and sidebar while project data loads. */
+function ProjectShellSkeleton() {
+	return (
+		<div
+			className="flex h-screen w-screen flex-col bg-slate-50"
+			aria-busy="true"
+		>
+			<div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
+				<Skeleton className="size-6" />
+				<Skeleton className="h-5 w-40" />
+				<div className="flex-1" />
+				<Skeleton className="h-8 w-24" />
+				<Skeleton className="h-8 w-32" />
+				<Skeleton className="h-8 w-48" />
+			</div>
+			<div className="flex min-h-0 flex-1">
+				<div className="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white">
+					<div className="flex flex-col gap-2 px-4 py-3">
+						<div className="flex items-center justify-between">
+							<Skeleton className="h-3 w-16" />
+							<Skeleton className="h-6 w-14" />
+						</div>
+						<Skeleton className="h-7 w-full" />
+					</div>
+					{["a", "b", "c"].map((key) => (
+						<div
+							key={key}
+							className="flex items-center gap-3 border-t border-slate-100 px-4 py-3"
+						>
+							<Skeleton className="size-10" />
+							<div className="flex min-w-0 flex-1 flex-col gap-2">
+								<Skeleton className="h-3 w-1/2" />
+								<Skeleton className="h-2 w-1/3" />
+							</div>
+						</div>
+					))}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/**
+ * A failed root load: what failed, the reason, a retry, and (when a project
+ * is open) a way to close it and pick another one.
+ */
+function RootLoadError({
+	title,
+	error,
+	onRetry,
+	isRetrying,
+	canCloseProject,
+}: {
+	title: string;
+	error: unknown;
+	onRetry: () => void;
+	isRetrying: boolean;
+	canCloseProject: boolean;
+}) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const closeMutation = useMutation({
+		mutationFn: closeProject,
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
+			navigate("/", { replace: true });
+		},
+	});
+	const reason = error instanceof Error ? error.message : undefined;
+	const closeError =
+		closeMutation.error instanceof Error ? closeMutation.error.message : null;
+
+	return (
+		<main className="flex h-screen w-screen items-center justify-center bg-slate-50 text-slate-950">
+			<EmptyState
+				icon={TriangleAlert}
+				title={title}
+				description={
+					<span role="alert">
+						{reason}
+						{closeError ? (
+							<>
+								<br />
+								Could not close the project: {closeError}
+							</>
+						) : null}
+					</span>
+				}
+				action={
+					<div className="flex items-center gap-2">
+						{canCloseProject ? (
+							<Button
+								type="button"
+								variant="outlined"
+								disabled={closeMutation.isPending}
+								onClick={() => closeMutation.mutate()}
+							>
+								{closeMutation.isPending ? "Closing…" : "Close project"}
+							</Button>
+						) : null}
+						<Button
+							type="button"
+							variant="filled"
+							disabled={isRetrying}
+							onClick={onRetry}
+						>
+							{isRetrying ? "Retrying…" : "Retry"}
+						</Button>
+					</div>
+				}
+			/>
+		</main>
 	);
 }
 
@@ -66,6 +204,7 @@ function HomeRoutes() {
 }
 
 export function Root() {
+	const navigate = useNavigate();
 	const sessionQuery = useQuery(sessionQueryOptions());
 	const activeProject = sessionQuery.data?.activeProject;
 	const activeProjectScope = getProjectQueryScope(activeProject);
@@ -91,6 +230,12 @@ export function Root() {
 			getSystemAttentionSummary(syncController.systems, syncController.results),
 		[syncController.systems, syncController.results],
 	);
+	// One system to review: the toast opens its token review. Several: the
+	// project sidebar marks each one.
+	const reviewSystemId =
+		systemAttention.reviewSystemIds.length === 1
+			? systemAttention.reviewSystemIds[0]
+			: null;
 	const attentionToastIds = useMemo(
 		() => getSystemAttentionToastIds(activeProjectScope),
 		[activeProjectScope],
@@ -131,13 +276,13 @@ export function Root() {
 			return;
 		}
 
-		const issueNames = systemAttention.issueKey.split("\0");
-		toast.warning("Your systems need attention", {
+		const copy = getSystemAttentionToastCopy(
+			"issues",
+			systemAttention.issueKey.split("\0"),
+		);
+		toast.warning(copy.title, {
 			id: attentionToastIds.issues,
-			description:
-				issueNames.length === 1
-					? `${issueNames[0]} has issues syncing tokens`
-					: "Some design systems have issues syncing tokens",
+			description: copy.description,
 		});
 		visibleAttentionToastIdsRef.current.issues = attentionToastIds.issues;
 	}, [attentionToastIds.issues, projectDataReady, systemAttention.issueKey]);
@@ -155,31 +300,43 @@ export function Root() {
 			return;
 		}
 
-		const reviewNames = systemAttention.reviewKey.split("\0");
-		toast.info("Your systems need attention", {
+		const copy = getSystemAttentionToastCopy(
+			"review",
+			systemAttention.reviewKey.split("\0"),
+		);
+		toast.info(copy.title, {
 			id: attentionToastIds.review,
-			description:
-				reviewNames.length === 1
-					? `${reviewNames[0]} has token changes to review`
-					: "Some design systems have token changes to review",
+			description: copy.description,
+			action: reviewSystemId
+				? {
+						label: "Review",
+						onClick: () =>
+							navigate(getSystemEditorPath(reviewSystemId, { tab: "tokens" })),
+					}
+				: undefined,
 		});
 		visibleAttentionToastIdsRef.current.review = attentionToastIds.review;
-	}, [attentionToastIds.review, projectDataReady, systemAttention.reviewKey]);
+	}, [
+		attentionToastIds.review,
+		navigate,
+		projectDataReady,
+		reviewSystemId,
+		systemAttention.reviewKey,
+	]);
 
 	if (sessionQuery.isPending) {
-		return (
-			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
-				Loading project data...
-			</div>
-		);
+		return <ProjectShellSkeleton />;
 	}
 
 	if (sessionQuery.isError) {
-		const errorMessage = (sessionQuery.error as Error | null)?.message;
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Failed to load session: {errorMessage}
-			</div>
+			<RootLoadError
+				title="Could not load your projects"
+				error={sessionQuery.error}
+				onRetry={() => void sessionQuery.refetch()}
+				isRetrying={sessionQuery.isFetching}
+				canCloseProject={false}
+			/>
 		);
 	}
 
@@ -187,12 +344,11 @@ export function Root() {
 		return <HomeRoutes />;
 	}
 
-	if (configQuery.isPending || systemsQuery.isPending) {
-		return (
-			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
-				Loading project data...
-			</div>
-		);
+	if (
+		configQuery.isPending ||
+		(configQuery.isSuccess && systemsQuery.isPending)
+	) {
+		return <ProjectShellSkeleton />;
 	}
 
 	if (configQuery.isError) {
@@ -203,20 +359,26 @@ export function Root() {
 			return <HomeRoutes />;
 		}
 
-		const errorMessage = (configQuery.error as Error | null)?.message;
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Failed to load project data: {errorMessage}
-			</div>
+			<RootLoadError
+				title={`Could not load ${activeProject?.name ?? "the project"}`}
+				error={configQuery.error}
+				onRetry={() => void configQuery.refetch()}
+				isRetrying={configQuery.isFetching}
+				canCloseProject
+			/>
 		);
 	}
 
 	if (systemsQuery.isError) {
-		const errorMessage = (systemsQuery.error as Error | null)?.message;
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Failed to load system data: {errorMessage}
-			</div>
+			<RootLoadError
+				title={`Could not load systems for ${activeProject?.name ?? "the project"}`}
+				error={systemsQuery.error}
+				onRetry={() => void systemsQuery.refetch()}
+				isRetrying={systemsQuery.isFetching}
+				canCloseProject
+			/>
 		);
 	}
 

@@ -21,6 +21,7 @@ import { Button } from "../../ui/button";
 import { Chip } from "../../ui/chip";
 import { EmptyState } from "../../ui/empty-state";
 import { ScrollArea } from "../../ui/scroll-area";
+import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
 import { MemoryNoteBody } from "./MemoryNoteBody";
 import { type MemoryNoteDraft, MemoryNoteEditor } from "./MemoryNoteEditor";
@@ -100,6 +101,21 @@ function NoteCard({
 				{note.author.kind === "agent" ? "agent" : "you"}
 				{note.author.label ? ` · ${note.author.label}` : ""}
 			</Text>
+		</div>
+	);
+}
+
+/** Mirrors a note card: category badge and title, two body lines, author. */
+function NoteCardSkeleton() {
+	return (
+		<div className="flex flex-col gap-2 bg-white p-3 inset-shadow-[0_0_0_1px] inset-shadow-slate-200">
+			<div className="flex items-center gap-1.5">
+				<Skeleton className="h-4 w-16" />
+				<Skeleton className="h-4 w-32" />
+			</div>
+			<Skeleton className="h-3 w-full" />
+			<Skeleton className="h-3 w-2/3" />
+			<Skeleton className="h-2.5 w-12" />
 		</div>
 	);
 }
@@ -191,6 +207,8 @@ export function MemoryNotesPanel({
 
 	const loadError =
 		memoryQuery.error instanceof Error ? memoryQuery.error.message : null;
+	const deleteError =
+		deleteMutation.error instanceof Error ? deleteMutation.error.message : null;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
@@ -210,9 +228,13 @@ export function MemoryNotesPanel({
 			) : null}
 
 			<div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2">
-				<Text tone="muted" className="text-xs">
-					{notes.length} {notes.length === 1 ? "note" : "notes"}
-				</Text>
+				{memoryQuery.isSuccess ? (
+					<Text tone="muted" className="text-xs">
+						{notes.length} {notes.length === 1 ? "note" : "notes"}
+					</Text>
+				) : (
+					<span />
+				)}
 				<Button
 					variant="outlined"
 					className="flex items-center gap-1.5"
@@ -221,7 +243,7 @@ export function MemoryNotesPanel({
 						createMutation.reset();
 						setMode("create");
 					}}
-					disabled={mode === "create" || isWriting || memoryQuery.isPending}
+					disabled={mode === "create" || isWriting || !memoryQuery.isSuccess}
 				>
 					<Plus className="size-3.5" aria-hidden="true" />
 					Add note
@@ -229,11 +251,31 @@ export function MemoryNotesPanel({
 			</div>
 
 			<ScrollArea className="min-h-0 flex-1">
-				<div className="flex flex-col gap-3 p-4">
-					{loadError ? (
-						<Alert variant="panel" tone="danger">
-							{loadError}
-						</Alert>
+				<div
+					className="flex flex-col gap-3 p-4"
+					aria-busy={memoryQuery.isPending}
+				>
+					{memoryQuery.isPending ? (
+						<>
+							<NoteCardSkeleton />
+							<NoteCardSkeleton />
+						</>
+					) : null}
+
+					{memoryQuery.isError ? (
+						<div className="flex items-start gap-2">
+							<Alert variant="panel" tone="danger" className="min-w-0 flex-1">
+								Could not load notes: {loadError}
+							</Alert>
+							<Button
+								variant="outlined"
+								className="shrink-0 px-2 py-1 text-xs"
+								disabled={memoryQuery.isFetching}
+								onClick={() => void memoryQuery.refetch()}
+							>
+								Retry
+							</Button>
+						</div>
 					) : null}
 
 					{mode === "create" ? (
@@ -247,7 +289,7 @@ export function MemoryNotesPanel({
 						/>
 					) : null}
 
-					{notes.length === 0 && mode !== "create" ? (
+					{memoryQuery.isSuccess && notes.length === 0 && mode !== "create" ? (
 						<EmptyState
 							size="sm"
 							icon={NotebookPen}
@@ -293,15 +335,17 @@ export function MemoryNotesPanel({
 				onOpenChange={(open) => {
 					if (!open && !deleteMutation.isPending) {
 						setDeleteTarget(null);
+						deleteMutation.reset();
 					}
 				}}
 				title="Delete note"
 				description="Delete this memory note? This cannot be undone."
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
+				actionLabel={deleteMutation.isPending ? "Deleting..." : "Delete note"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
+				error={deleteError ? `Could not delete the note: ${deleteError}` : null}
 				onAction={() => {
 					if (deleteTarget) {
 						deleteMutation.mutate(deleteTarget);

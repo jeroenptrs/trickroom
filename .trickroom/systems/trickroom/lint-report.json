@@ -1,6 +1,6 @@
 {
 	"version": 1,
-	"generatedAt": "2026-11-18T21:05:01.087Z",
+	"generatedAt": "2026-11-18T21:39:38.767Z",
 	"system": {
 		"id": "sys_eb1ff359-1da3-4d30-b04d-837328581a78",
 		"name": "Trickroom"
@@ -17,7 +17,7 @@
 		"code": {
 			"findings": {
 				"errors": 0,
-				"warnings": 295,
+				"warnings": 285,
 				"info": 1
 			},
 			"rules": {
@@ -48,7 +48,7 @@
 				},
 				"code.unknown-class-token": {
 					"errors": 0,
-					"warnings": 295,
+					"warnings": 285,
 					"info": 0
 				},
 				"code.unknown-variant-value": {
@@ -77,7 +77,7 @@
 					"info": 0
 				}
 			},
-			"scanned": 584
+			"scanned": 589
 		},
 		"design": {
 			"findings": {
@@ -115,48 +115,12 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 135,
-				"column": 96
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 183,
-				"column": 84
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 230,
-				"column": 38
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 251,
-				"column": 41
+				"line": 310,
+				"column": 40
 			}
 		},
 		{
@@ -167,20 +131,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 271,
-				"column": 52
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/CreateProjectPanel.tsx",
-				"line": 287,
-				"column": 27
+				"line": 317,
+				"column": 47
 			}
 		},
 		{
@@ -203,7 +155,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/MCPSetupDialog.tsx",
-				"line": 143,
+				"line": 145,
 				"column": 96
 			}
 		},
@@ -215,7 +167,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/MCPSetupDialog.tsx",
-				"line": 159,
+				"line": 161,
 				"column": 19
 			}
 		},
@@ -227,7 +179,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/McpToolSettingsDialog.tsx",
-				"line": 86,
+				"line": 83,
 				"column": 46
 			}
 		},
@@ -239,7 +191,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/McpToolSettingsDialog.tsx",
-				"line": 89,
+				"line": 86,
 				"column": 48
 			}
 		},
@@ -251,7 +203,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/McpToolSettingsDialog.tsx",
-				"line": 99,
+				"line": 96,
 				"column": 31
 			}
 		},
@@ -263,7 +215,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/McpToolSettingsDialog.tsx",
-				"line": 184,
+				"line": 199,
 				"column": 36
 			}
 		},
@@ -275,32 +227,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/OpenProjectPanel.tsx",
-				"line": 65,
+				"line": 69,
 				"column": 42
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/OpenProjectPanel.tsx",
-				"line": 106,
-				"column": 35
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/Root.tsx",
-				"line": 40,
-				"column": 119
 			}
 		},
 		{
@@ -311,7 +239,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/SystemEditor.tsx",
-				"line": 146,
+				"line": 155,
 				"column": 32
 			}
 		},
@@ -323,7 +251,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AddLayerCommandMenu.tsx",
-				"line": 126,
+				"line": 125,
 				"column": 37
 			}
 		},
@@ -335,7 +263,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AddLayerCommandMenu.tsx",
-				"line": 135,
+				"line": 134,
 				"column": 36
 			}
 		},
@@ -347,8 +275,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 176,
-				"column": 114
+				"line": 180,
+				"column": 106
 			}
 		},
 		{
@@ -359,7 +287,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 339,
+				"line": 338,
 				"column": 65
 			}
 		},
@@ -371,7 +299,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 344,
+				"line": 343,
 				"column": 19
 			}
 		},
@@ -383,7 +311,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 379,
+				"line": 387,
 				"column": 21
 			}
 		},
@@ -395,7 +323,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 418,
+				"line": 465,
 				"column": 66
 			}
 		},
@@ -407,7 +335,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 452,
+				"line": 499,
 				"column": 64
 			}
 		},
@@ -419,7 +347,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 463,
+				"line": 510,
 				"column": 33
 			}
 		},
@@ -431,7 +359,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/AttachedComponentProperties.tsx",
-				"line": 580,
+				"line": 623,
 				"column": 65
 			}
 		},
@@ -455,7 +383,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignHeader.tsx",
-				"line": 124,
+				"line": 126,
 				"column": 23
 			}
 		},
@@ -467,7 +395,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignHeader.tsx",
-				"line": 138,
+				"line": 140,
 				"column": 41
 			}
 		},
@@ -479,7 +407,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignHeader.tsx",
-				"line": 172,
+				"line": 175,
 				"column": 31
 			}
 		},
@@ -491,7 +419,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignLintFindings.tsx",
-				"line": 66,
+				"line": 67,
 				"column": 38
 			}
 		},
@@ -503,7 +431,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/DesignLintFindings.tsx",
-				"line": 104,
+				"line": 117,
 				"column": 54
 			}
 		},
@@ -514,8 +442,32 @@
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
+				"file": "src/components/chrome/DesignSave.tsx",
+				"line": 197,
+				"column": 68
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/chrome/DesignSave.tsx",
+				"line": 207,
+				"column": 31
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
 				"file": "src/components/chrome/ExtractSystemComponentDialog.tsx",
-				"line": 489,
+				"line": 551,
 				"column": 28
 			}
 		},
@@ -527,7 +479,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Layers.tsx",
-				"line": 1217,
+				"line": 1208,
 				"column": 32
 			}
 		},
@@ -535,31 +487,7 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/chrome/Layers.tsx",
-				"line": 1260,
-				"column": 75
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[13px]\" uses arbitrary text value [13px]. Use a token of the system, or add \"text-[13px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/chrome/Properties.tsx",
-				"line": 198,
-				"column": 31
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
@@ -571,11 +499,23 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/chrome/Properties.tsx",
+				"line": 204,
+				"column": 31
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 291,
+				"line": 294,
 				"column": 64
 			}
 		},
@@ -587,7 +527,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 761,
+				"line": 784,
 				"column": 21
 			}
 		},
@@ -599,7 +539,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 768,
+				"line": 791,
 				"column": 24
 			}
 		},
@@ -611,7 +551,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 795,
+				"line": 818,
 				"column": 39
 			}
 		},
@@ -623,7 +563,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 1040,
+				"line": 1066,
 				"column": 34
 			}
 		},
@@ -635,7 +575,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/Properties.tsx",
-				"line": 1089,
+				"line": 1115,
 				"column": 34
 			}
 		},
@@ -647,7 +587,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 142,
+				"line": 164,
 				"column": 51
 			}
 		},
@@ -659,8 +599,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 215,
-				"column": 54
+				"line": 238,
+				"column": 46
 			}
 		},
 		{
@@ -671,7 +611,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 235,
+				"line": 258,
 				"column": 64
 			}
 		},
@@ -683,7 +623,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 262,
+				"line": 285,
 				"column": 56
 			}
 		},
@@ -695,7 +635,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 273,
+				"line": 296,
 				"column": 73
 			}
 		},
@@ -703,12 +643,12 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 371,
-				"column": 27
+				"line": 388,
+				"column": 72
 			}
 		},
 		{
@@ -719,7 +659,31 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 399,
+				"line": 393,
+				"column": 27
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/chrome/WorkspaceToolbar.tsx",
+				"line": 397,
+				"column": 43
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/chrome/WorkspaceToolbar.tsx",
+				"line": 423,
 				"column": 58
 			}
 		},
@@ -731,7 +695,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 459,
+				"line": 483,
 				"column": 83
 			}
 		},
@@ -743,7 +707,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 472,
+				"line": 496,
 				"column": 74
 			}
 		},
@@ -755,7 +719,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 566,
+				"line": 590,
 				"column": 56
 			}
 		},
@@ -767,7 +731,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 577,
+				"line": 601,
 				"column": 73
 			}
 		},
@@ -779,7 +743,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 578,
+				"line": 602,
 				"column": 66
 			}
 		},
@@ -791,7 +755,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 598,
+				"line": 622,
 				"column": 35
 			}
 		},
@@ -803,7 +767,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/chrome/WorkspaceToolbar.tsx",
-				"line": 626,
+				"line": 650,
 				"column": 119
 			}
 		},
@@ -864,7 +828,31 @@
 				"kind": "code",
 				"file": "src/components/project/AuditLogLink.tsx",
 				"line": 34,
-				"column": 48
+				"column": 38
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/project/AuditLogLink.tsx",
+				"line": 39,
+				"column": 31
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/project/AuditLogLink.tsx",
+				"line": 51,
+				"column": 49
 			}
 		},
 		{
@@ -875,7 +863,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 309,
+				"line": 358,
 				"column": 44
 			}
 		},
@@ -887,7 +875,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 328,
+				"line": 419,
 				"column": 44
 			}
 		},
@@ -899,7 +887,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 347,
+				"line": 441,
 				"column": 44
 			}
 		},
@@ -911,19 +899,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CommandMenu.tsx",
-				"line": 382,
-				"column": 44
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/project/CommandMenu.tsx",
-				"line": 442,
+				"line": 501,
 				"column": 45
 			}
 		},
@@ -931,47 +907,11 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/project/CommandMenu.tsx",
-				"line": 470,
-				"column": 43
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/project/CommandMenu.tsx",
-				"line": 489,
-				"column": 43
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/CreateSystemDialog.tsx",
-				"line": 144,
-				"column": 40
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/project/CreateSystemDialog.tsx",
-				"line": 164,
+				"line": 177,
 				"column": 41
 			}
 		},
@@ -1007,7 +947,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 129,
+				"line": 130,
 				"column": 47
 			}
 		},
@@ -1019,7 +959,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 278,
+				"line": 288,
 				"column": 45
 			}
 		},
@@ -1031,7 +971,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/Designs.tsx",
-				"line": 286,
+				"line": 296,
 				"column": 61
 			}
 		},
@@ -1043,20 +983,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/ProjectHeader.tsx",
-				"line": 149,
+				"line": 145,
 				"column": 59
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/project/ProjectHeader.tsx",
-				"line": 163,
-				"column": 46
 			}
 		},
 		{
@@ -1067,7 +995,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 569,
+				"line": 587,
 				"column": 36
 			}
 		},
@@ -1079,7 +1007,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 606,
+				"line": 614,
 				"column": 37
 			}
 		},
@@ -1091,7 +1019,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 645,
+				"line": 664,
 				"column": 36
 			}
 		},
@@ -1103,7 +1031,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemDetailPane.tsx",
-				"line": 962,
+				"line": 982,
 				"column": 46
 			}
 		},
@@ -1127,8 +1055,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemTokenRows.tsx",
-				"line": 282,
-				"column": 33
+				"line": 286,
+				"column": 34
 			}
 		},
 		{
@@ -1139,7 +1067,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/SystemTokenRows.tsx",
-				"line": 360,
+				"line": 365,
 				"column": 33
 			}
 		},
@@ -1187,7 +1115,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/memory/MemoryNotesPanel.tsx",
-				"line": 99,
+				"line": 100,
 				"column": 44
 			}
 		},
@@ -1199,7 +1127,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/memory/MemoryNotesPanel.tsx",
-				"line": 205,
+				"line": 223,
 				"column": 26
 			}
 		},
@@ -1211,7 +1139,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/memory/MemoryReferenceSuggest.tsx",
-				"line": 56,
+				"line": 57,
 				"column": 48
 			}
 		},
@@ -1223,7 +1151,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/project/memory/MemoryReferenceSuggest.tsx",
-				"line": 124,
+				"line": 132,
 				"column": 47
 			}
 		},
@@ -1247,7 +1175,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/AuthoredCompoundsList.tsx",
-				"line": 81,
+				"line": 87,
 				"column": 19
 			}
 		},
@@ -1259,7 +1187,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/AuthoredCompoundsList.tsx",
-				"line": 84,
+				"line": 90,
 				"column": 24
 			}
 		},
@@ -1271,32 +1199,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/AuthoredCompoundsList.tsx",
-				"line": 107,
+				"line": 113,
 				"column": 32
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1084,
-				"column": 27
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1098,
-				"column": 31
 			}
 		},
 		{
@@ -1308,6 +1212,30 @@
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
 				"line": 1166,
+				"column": 27
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
+				"line": 1184,
+				"column": 31
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
+				"line": 1244,
 				"column": 37
 			}
 		},
@@ -1319,7 +1247,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftLayers.tsx",
-				"line": 1185,
+				"line": 1263,
 				"column": 29
 			}
 		},
@@ -1331,7 +1259,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 262,
+				"line": 265,
 				"column": 64
 			}
 		},
@@ -1343,7 +1271,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 425,
+				"line": 420,
 				"column": 18
 			}
 		},
@@ -1355,7 +1283,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 510,
+				"line": 518,
 				"column": 28
 			}
 		},
@@ -1367,7 +1295,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 539,
+				"line": 547,
 				"column": 31
 			}
 		},
@@ -1379,7 +1307,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 542,
+				"line": 550,
 				"column": 31
 			}
 		},
@@ -1391,7 +1319,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 586,
+				"line": 594,
 				"column": 19
 			}
 		},
@@ -1403,7 +1331,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 593,
+				"line": 601,
 				"column": 19
 			}
 		},
@@ -1415,7 +1343,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 705,
+				"line": 716,
 				"column": 38
 			}
 		},
@@ -1427,7 +1355,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftProperties.tsx",
-				"line": 794,
+				"line": 812,
 				"column": 39
 			}
 		},
@@ -1439,7 +1367,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/ComponentDraftStage.tsx",
-				"line": 204,
+				"line": 216,
 				"column": 85
 			}
 		},
@@ -1451,7 +1379,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 65,
+				"line": 66,
 				"column": 77
 			}
 		},
@@ -1463,7 +1391,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 69,
+				"line": 70,
 				"column": 82
 			}
 		},
@@ -1475,7 +1403,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 81,
+				"line": 82,
 				"column": 31
 			}
 		},
@@ -1487,7 +1415,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 85,
+				"line": 86,
 				"column": 36
 			}
 		},
@@ -1499,7 +1427,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 197,
+				"line": 201,
 				"column": 30
 			}
 		},
@@ -1511,8 +1439,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 200,
-				"column": 60
+				"line": 207,
+				"column": 61
 			}
 		},
 		{
@@ -1523,7 +1451,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 259,
+				"line": 275,
 				"column": 18
 			}
 		},
@@ -1535,7 +1463,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 295,
+				"line": 311,
 				"column": 20
 			}
 		},
@@ -1547,7 +1475,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 526,
+				"line": 563,
 				"column": 44
 			}
 		},
@@ -1559,7 +1487,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorAssetsPanel.tsx",
-				"line": 529,
+				"line": 566,
 				"column": 36
 			}
 		},
@@ -1571,7 +1499,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 125,
+				"line": 130,
 				"column": 56
 			}
 		},
@@ -1583,31 +1511,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 133,
-				"column": 56
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 141,
-				"column": 56
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 150,
+				"line": 148,
 				"column": 54
 			}
 		},
@@ -1619,7 +1523,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 158,
+				"line": 156,
 				"column": 56
 			}
 		},
@@ -1631,7 +1535,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 166,
+				"line": 164,
 				"column": 56
 			}
 		},
@@ -1643,7 +1547,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 174,
+				"line": 172,
 				"column": 58
 			}
 		},
@@ -1655,7 +1559,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 181,
+				"line": 179,
 				"column": 55
 			}
 		},
@@ -1667,8 +1571,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 328,
-				"column": 39
+				"line": 354,
+				"column": 55
 			}
 		},
 		{
@@ -1679,7 +1583,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 379,
+				"line": 419,
 				"column": 29
 			}
 		},
@@ -1691,7 +1595,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 397,
+				"line": 437,
 				"column": 58
 			}
 		},
@@ -1703,7 +1607,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 405,
+				"line": 445,
 				"column": 54
 			}
 		},
@@ -1715,7 +1619,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 412,
+				"line": 452,
 				"column": 55
 			}
 		},
@@ -1727,7 +1631,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 452,
+				"line": 494,
 				"column": 32
 			}
 		},
@@ -1739,7 +1643,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 456,
+				"line": 498,
 				"column": 47
 			}
 		},
@@ -1751,7 +1655,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 902,
+				"line": 990,
 				"column": 45
 			}
 		},
@@ -1763,7 +1667,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorComponentsPanel.tsx",
-				"line": 961,
+				"line": 1033,
 				"column": 58
 			}
 		},
@@ -1775,7 +1679,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 102,
+				"line": 95,
 				"column": 30
 			}
 		},
@@ -1787,8 +1691,20 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 106,
+				"line": 99,
 				"column": 35
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
+				"line": 203,
+				"column": 46
 			}
 		},
 		{
@@ -1799,7 +1715,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 202,
+				"line": 239,
 				"column": 30
 			}
 		},
@@ -1811,8 +1727,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 205,
-				"column": 60
+				"line": 245,
+				"column": 61
 			}
 		},
 		{
@@ -1823,7 +1739,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 338,
+				"line": 383,
 				"column": 30
 			}
 		},
@@ -1835,8 +1751,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 341,
-				"column": 31
+				"line": 389,
+				"column": 32
 			}
 		},
 		{
@@ -1847,7 +1763,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 365,
+				"line": 416,
 				"column": 30
 			}
 		},
@@ -1859,7 +1775,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 374,
+				"line": 425,
 				"column": 18
 			}
 		},
@@ -1871,7 +1787,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 433,
+				"line": 488,
 				"column": 36
 			}
 		},
@@ -1883,7 +1799,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 593,
+				"line": 716,
 				"column": 44
 			}
 		},
@@ -1895,7 +1811,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorIconsPanel.tsx",
-				"line": 596,
+				"line": 719,
 				"column": 36
 			}
 		},
@@ -1907,7 +1823,31 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 600,
+				"line": 166,
+				"column": 60
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorInspector.tsx",
+				"line": 175,
+				"column": 18
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorInspector.tsx",
+				"line": 826,
 				"column": 19
 			}
 		},
@@ -1919,7 +1859,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 626,
+				"line": 852,
 				"column": 19
 			}
 		},
@@ -1931,7 +1871,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 637,
+				"line": 863,
 				"column": 25
 			}
 		},
@@ -1943,7 +1883,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 654,
+				"line": 882,
 				"column": 25
 			}
 		},
@@ -1955,7 +1895,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 682,
+				"line": 916,
 				"column": 25
 			}
 		},
@@ -1967,7 +1907,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 701,
+				"line": 939,
 				"column": 25
 			}
 		},
@@ -1979,7 +1919,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 724,
+				"line": 963,
 				"column": 25
 			}
 		},
@@ -1991,7 +1931,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 820,
+				"line": 1066,
 				"column": 40
 			}
 		},
@@ -2003,7 +1943,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1236,
+				"line": 1525,
 				"column": 22
 			}
 		},
@@ -2015,7 +1955,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1246,
+				"line": 1533,
 				"column": 18
 			}
 		},
@@ -2027,7 +1967,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1249,
+				"line": 1536,
 				"column": 23
 			}
 		},
@@ -2039,7 +1979,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1260,
+				"line": 1547,
 				"column": 30
 			}
 		},
@@ -2051,7 +1991,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1273,
+				"line": 1560,
 				"column": 30
 			}
 		},
@@ -2063,7 +2003,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1283,
+				"line": 1569,
 				"column": 21
 			}
 		},
@@ -2075,7 +2015,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1305,
+				"line": 1591,
 				"column": 27
 			}
 		},
@@ -2087,7 +2027,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1317,
+				"line": 1603,
 				"column": 22
 			}
 		},
@@ -2099,7 +2039,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1320,
+				"line": 1606,
 				"column": 22
 			}
 		},
@@ -2111,7 +2051,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1329,
+				"line": 1615,
 				"column": 21
 			}
 		},
@@ -2123,7 +2063,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1359,
+				"line": 1645,
 				"column": 21
 			}
 		},
@@ -2135,7 +2075,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1372,
+				"line": 1658,
 				"column": 28
 			}
 		},
@@ -2147,7 +2087,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1380,
+				"line": 1666,
 				"column": 29
 			}
 		},
@@ -2159,7 +2099,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1383,
+				"line": 1669,
 				"column": 48
 			}
 		},
@@ -2167,35 +2107,11 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1397,
-				"column": 21
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1404,
-				"column": 21
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1420,
+				"line": 1690,
 				"column": 29
 			}
 		},
@@ -2207,7 +2123,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1433,
+				"line": 1703,
 				"column": 24
 			}
 		},
@@ -2219,7 +2135,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1449,
+				"line": 1733,
 				"column": 24
 			}
 		},
@@ -2231,7 +2147,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1462,
+				"line": 1760,
 				"column": 24
 			}
 		},
@@ -2243,7 +2159,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1478,
+				"line": 1776,
 				"column": 25
 			}
 		},
@@ -2255,7 +2171,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1513,
+				"line": 1811,
 				"column": 25
 			}
 		},
@@ -2267,7 +2183,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1528,
+				"line": 1826,
 				"column": 24
 			}
 		},
@@ -2279,31 +2195,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1566,
-				"column": 20
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1578,
-				"column": 20
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorInspector.tsx",
-				"line": 1585,
+				"line": 1859,
 				"column": 20
 			}
 		},
@@ -2315,7 +2207,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 106,
+				"line": 112,
 				"column": 50
 			}
 		},
@@ -2327,7 +2219,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 121,
+				"line": 127,
 				"column": 25
 			}
 		},
@@ -2339,7 +2231,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 150,
+				"line": 156,
 				"column": 40
 			}
 		},
@@ -2351,7 +2243,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 353,
+				"line": 360,
 				"column": 35
 			}
 		},
@@ -2363,20 +2255,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorLintPanel.tsx",
-				"line": 384,
+				"line": 395,
 				"column": 56
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 561,
-				"column": 31
 			}
 		},
 		{
@@ -2423,7 +2303,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 639,
+				"line": 653,
 				"column": 34
 			}
 		},
@@ -2435,8 +2315,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 651,
-				"column": 32
+				"line": 668,
+				"column": 33
 			}
 		},
 		{
@@ -2447,8 +2327,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 704,
-				"column": 21
+				"line": 727,
+				"column": 16
 			}
 		},
 		{
@@ -2459,7 +2339,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 782,
+				"line": 801,
 				"column": 42
 			}
 		},
@@ -2471,7 +2351,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 810,
+				"line": 827,
 				"column": 36
 			}
 		},
@@ -2483,7 +2363,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 877,
+				"line": 897,
 				"column": 20
 			}
 		},
@@ -2495,19 +2375,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 916,
-				"column": 42
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1062,
+				"line": 936,
 				"column": 35
 			}
 		},
@@ -2519,139 +2387,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1078,
-				"column": 47
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1081,
-				"column": 47
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1285,
-				"column": 40
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1289,
-				"column": 40
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1373,
-				"column": 43
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1376,
-				"column": 54
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1422,
-				"column": 34
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1425,
-				"column": 54
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1430,
-				"column": 47
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1455,
-				"column": 43
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1458,
-				"column": 34
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1480,
+				"line": 941,
 				"column": 42
 			}
 		},
@@ -2663,8 +2399,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1483,
-				"column": 53
+				"line": 1080,
+				"column": 35
 			}
 		},
 		{
@@ -2675,67 +2411,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1592,
-				"column": 43
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1601,
-				"column": 54
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1632,
-				"column": 44
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1635,
-				"column": 55
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1683,
-				"column": 44
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1687,
+				"line": 1096,
 				"column": 47
 			}
 		},
@@ -2743,36 +2419,12 @@
 			"rule": "code.unknown-class-token",
 			"severity": "warning",
 			"side": "code",
-			"message": "Class \"text-[9px]\" uses arbitrary text value [9px]. Use a token of the system, or add \"text-[9px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1891,
-				"column": 21
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
 			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1897,
-				"column": 50
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1902,
-				"column": 32
+				"line": 1099,
+				"column": 47
 			}
 		},
 		{
@@ -2783,8 +2435,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1987,
-				"column": 41
+				"line": 1303,
+				"column": 40
 			}
 		},
 		{
@@ -2795,55 +2447,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 1990,
-				"column": 32
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2345,
-				"column": 32
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[15px]\" uses arbitrary text value [15px]. Use a token of the system, or add \"text-[15px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2346,
-				"column": 41
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2349,
-				"column": 22
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2352,
+				"line": 1307,
 				"column": 40
 			}
 		},
@@ -2855,8 +2459,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2361,
-				"column": 22
+				"line": 1391,
+				"column": 43
 			}
 		},
 		{
@@ -2867,19 +2471,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2387,
-				"column": 50
-			}
-		},
-		{
-			"rule": "code.unknown-class-token",
-			"severity": "warning",
-			"side": "code",
-			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
-			"location": {
-				"kind": "code",
-				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2388,
+				"line": 1394,
 				"column": 54
 			}
 		},
@@ -2891,8 +2483,32 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2401,
-				"column": 22
+				"line": 1440,
+				"column": 34
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1443,
+				"column": 54
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1448,
+				"column": 47
 			}
 		},
 		{
@@ -2903,8 +2519,272 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
-				"line": 2408,
-				"column": 70
+				"line": 1473,
+				"column": 43
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1476,
+				"column": 34
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1498,
+				"column": 42
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1501,
+				"column": 53
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1603,
+				"column": 43
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1612,
+				"column": 54
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1643,
+				"column": 44
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1646,
+				"column": 55
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1694,
+				"column": 44
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1698,
+				"column": 47
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[9px]\" uses arbitrary text value [9px]. Use a token of the system, or add \"text-[9px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1887,
+				"column": 21
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1893,
+				"column": 50
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1898,
+				"column": 32
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1976,
+				"column": 40
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 1979,
+				"column": 31
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[15px]\" uses arbitrary text value [15px]. Use a token of the system, or add \"text-[15px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2342,
+				"column": 41
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2346,
+				"column": 23
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2348,
+				"column": 40
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2406,
+				"column": 49
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2412,
+				"column": 37
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2436,
+				"column": 51
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[10px]\" uses arbitrary text value [10px]. Use a token of the system, or add \"text-[10px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2437,
+				"column": 55
+			}
+		},
+		{
+			"rule": "code.unknown-class-token",
+			"severity": "warning",
+			"side": "code",
+			"message": "Class \"text-[11px]\" uses arbitrary text value [11px]. Use a token of the system, or add \"text-[11px]\" to this rule's allow list if it is intended.",
+			"location": {
+				"kind": "code",
+				"file": "src/components/system-editor/SystemEditorTokensPanel.tsx",
+				"line": 2459,
+				"column": 68
 			}
 		},
 		{
@@ -2963,7 +2843,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 228,
+				"line": 227,
 				"column": 91
 			}
 		},
@@ -2975,7 +2855,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 276,
+				"line": 275,
 				"column": 37
 			}
 		},
@@ -2987,7 +2867,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 286,
+				"line": 285,
 				"column": 60
 			}
 		},
@@ -2999,7 +2879,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintAdherenceView.tsx",
-				"line": 305,
+				"line": 304,
 				"column": 34
 			}
 		},
@@ -3011,7 +2891,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 147,
+				"line": 145,
 				"column": 69
 			}
 		},
@@ -3023,7 +2903,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 176,
+				"line": 174,
 				"column": 63
 			}
 		},
@@ -3035,7 +2915,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 248,
+				"line": 247,
 				"column": 35
 			}
 		},
@@ -3047,7 +2927,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 333,
+				"line": 334,
 				"column": 32
 			}
 		},
@@ -3059,7 +2939,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 335,
+				"line": 336,
 				"column": 34
 			}
 		},
@@ -3071,7 +2951,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 375,
+				"line": 378,
 				"column": 49
 			}
 		},
@@ -3083,7 +2963,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 400,
+				"line": 404,
 				"column": 48
 			}
 		},
@@ -3095,7 +2975,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 488,
+				"line": 492,
 				"column": 63
 			}
 		},
@@ -3107,7 +2987,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 678,
+				"line": 683,
 				"column": 52
 			}
 		},
@@ -3119,7 +2999,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 684,
+				"line": 689,
 				"column": 81
 			}
 		},
@@ -3131,7 +3011,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 795,
+				"line": 792,
 				"column": 38
 			}
 		},
@@ -3143,7 +3023,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintConfigEditor.tsx",
-				"line": 841,
+				"line": 838,
 				"column": 50
 			}
 		},
@@ -3347,7 +3227,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintParts.tsx",
-				"line": 150,
+				"line": 262,
 				"column": 58
 			}
 		},
@@ -3359,7 +3239,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintParts.tsx",
-				"line": 170,
+				"line": 282,
 				"column": 61
 			}
 		},
@@ -3371,7 +3251,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 94,
+				"line": 93,
 				"column": 34
 			}
 		},
@@ -3383,7 +3263,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 117,
+				"line": 116,
 				"column": 47
 			}
 		},
@@ -3395,7 +3275,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 122,
+				"line": 123,
 				"column": 36
 			}
 		},
@@ -3407,7 +3287,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 135,
+				"line": 136,
 				"column": 59
 			}
 		},
@@ -3419,7 +3299,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 166,
+				"line": 167,
 				"column": 43
 			}
 		},
@@ -3431,7 +3311,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 172,
+				"line": 173,
 				"column": 34
 			}
 		},
@@ -3443,7 +3323,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 183,
+				"line": 184,
 				"column": 36
 			}
 		},
@@ -3455,7 +3335,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 461,
+				"line": 468,
 				"column": 45
 			}
 		},
@@ -3467,7 +3347,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 483,
+				"line": 490,
 				"column": 27
 			}
 		},
@@ -3479,7 +3359,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 487,
+				"line": 494,
 				"column": 27
 			}
 		},
@@ -3491,7 +3371,7 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 502,
+				"line": 509,
 				"column": 52
 			}
 		},
@@ -3503,8 +3383,8 @@
 			"location": {
 				"kind": "code",
 				"file": "src/components/system-editor/lint/LintRailAndInspector.tsx",
-				"line": 563,
-				"column": 45
+				"line": 571,
+				"column": 36
 			}
 		},
 		{
@@ -7049,7 +6929,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 6,
+				"warnings": 2,
 				"info": 0
 			}
 		},
@@ -7088,17 +6968,6 @@
 		},
 		{
 			"file": "src/components/OpenProjectPanel.tsx",
-			"role": null,
-			"component": null,
-			"usages": 0,
-			"findings": {
-				"errors": 0,
-				"warnings": 2,
-				"info": 0
-			}
-		},
-		{
-			"file": "src/components/Root.tsx",
 			"role": null,
 			"component": null,
 			"usages": 0,
@@ -7175,6 +7044,17 @@
 			}
 		},
 		{
+			"file": "src/components/chrome/DesignSave.tsx",
+			"role": null,
+			"component": null,
+			"usages": 0,
+			"findings": {
+				"errors": 0,
+				"warnings": 2,
+				"info": 0
+			}
+		},
+		{
 			"file": "src/components/chrome/ExtractSystemComponentDialog.tsx",
 			"role": null,
 			"component": null,
@@ -7192,7 +7072,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 2,
+				"warnings": 1,
 				"info": 0
 			}
 		},
@@ -7214,7 +7094,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 14,
+				"warnings": 16,
 				"info": 0
 			}
 		},
@@ -7247,7 +7127,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 1,
+				"warnings": 3,
 				"info": 0
 			}
 		},
@@ -7258,7 +7138,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 7,
+				"warnings": 4,
 				"info": 0
 			}
 		},
@@ -7269,7 +7149,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 2,
+				"warnings": 1,
 				"info": 0
 			}
 		},
@@ -7302,7 +7182,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 2,
+				"warnings": 1,
 				"info": 0
 			}
 		},
@@ -7445,7 +7325,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 17,
+				"warnings": 15,
 				"info": 0
 			}
 		},
@@ -7456,7 +7336,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 11,
+				"warnings": 12,
 				"info": 0
 			}
 		},
@@ -7467,7 +7347,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 34,
+				"warnings": 32,
 				"info": 0
 			}
 		},
@@ -7489,7 +7369,7 @@
 			"usages": 0,
 			"findings": {
 				"errors": 0,
-				"warnings": 45,
+				"warnings": 44,
 				"info": 0
 			}
 		},
@@ -7955,10 +7835,10 @@
 	"ratchet": {
 		"status": "pass",
 		"baseline": {
-			"generatedAt": "2026-10-09T19:16:30.162Z",
+			"generatedAt": "2026-11-18T21:05:01.087Z",
 			"numbers": {
 				"code.errors": 0,
-				"code.warnings": 299,
+				"code.warnings": 295,
 				"coverage.bound": 0,
 				"coverage.generated": 0,
 				"coverage.published": 16,
@@ -7971,7 +7851,7 @@
 				"rule.code.redundant-class": 0,
 				"rule.code.required-axis-missing": 0,
 				"rule.code.slot-not-called": 0,
-				"rule.code.unknown-class-token": 299,
+				"rule.code.unknown-class-token": 295,
 				"rule.code.unknown-variant-value": 0,
 				"rule.code.variants-file-orphaned": 0,
 				"rule.code.variants-file-stale": 0,
@@ -8005,7 +7885,7 @@
 		"adopted": [],
 		"numbers": {
 			"code.errors": 0,
-			"code.warnings": 295,
+			"code.warnings": 285,
 			"coverage.bound": 0,
 			"coverage.generated": 0,
 			"coverage.published": 16,
@@ -8018,7 +7898,7 @@
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
-			"rule.code.unknown-class-token": 295,
+			"rule.code.unknown-class-token": 285,
 			"rule.code.unknown-variant-value": 0,
 			"rule.code.variants-file-orphaned": 0,
 			"rule.code.variants-file-stale": 0,
@@ -8031,10 +7911,10 @@
 		}
 	},
 	"ratchetBaseline": {
-		"generatedAt": "2026-11-18T21:05:01.087Z",
+		"generatedAt": "2026-11-18T21:39:38.767Z",
 		"numbers": {
 			"code.errors": 0,
-			"code.warnings": 295,
+			"code.warnings": 285,
 			"coverage.bound": 0,
 			"coverage.generated": 0,
 			"coverage.published": 16,
@@ -8047,7 +7927,7 @@
 			"rule.code.redundant-class": 0,
 			"rule.code.required-axis-missing": 0,
 			"rule.code.slot-not-called": 0,
-			"rule.code.unknown-class-token": 295,
+			"rule.code.unknown-class-token": 285,
 			"rule.code.unknown-variant-value": 0,
 			"rule.code.variants-file-orphaned": 0,
 			"rule.code.variants-file-stale": 0,

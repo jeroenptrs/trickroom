@@ -22,6 +22,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { EmptyState } from "../ui/empty-state";
+import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsList, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
 import { LintAdherenceView } from "./lint/LintAdherenceView";
@@ -32,7 +33,12 @@ import {
 	LintDesignHeatMapView,
 	LintFileHeatMapView,
 } from "./lint/LintHeatMapView";
-import { useDesignNames, useSystemLint } from "./lint/LintParts";
+import {
+	LintLoadError,
+	LintViewSkeleton,
+	useDesignNames,
+	useSystemLint,
+} from "./lint/LintParts";
 import { countCoverage, isReportStale } from "./lint/lint-dashboard-model";
 
 export {
@@ -178,10 +184,7 @@ export function SystemEditorLintPanel({
 	const selection = useLintSelection();
 	const { reportQuery, configQuery, report, currentContractHash, hasNoReport } =
 		useSystemLint(systemId, projectScope);
-	const designNames = useDesignNames(
-		Boolean(report?.designs?.length),
-		projectScope,
-	);
+	const designNames = useDesignNames(report, projectScope);
 	const runMutation = useMutation({
 		mutationFn: () => runSystemLint(systemId),
 		onSuccess: async (result) => {
@@ -234,12 +237,16 @@ export function SystemEditorLintPanel({
 				componentSlugs={componentSlugs}
 			/>
 		) : configQuery.isError ? (
-			<Alert tone="danger">{(configQuery.error as Error).message}</Alert>
+			<LintLoadError
+				title="Could not load lint.json"
+				error={configQuery.error}
+				onRetry={() => void configQuery.refetch()}
+			/>
 		) : (
-			<Text tone="faint">Loading lint.json…</Text>
+			<LintViewSkeleton />
 		);
 	} else if (reportQuery.isPending) {
-		body = <Text tone="faint">Loading the lint report…</Text>;
+		body = <LintViewSkeleton />;
 	} else if (hasNoReport) {
 		body = (
 			<EmptyState
@@ -362,7 +369,11 @@ export function SystemEditorLintPanel({
 							</span>
 						) : null}
 					</div>
-					{hasNoReport && view !== "config" ? null : runButton}
+					{reportQuery.isPending ? (
+						<Skeleton className="h-8 w-24" />
+					) : hasNoReport && view !== "config" ? null : (
+						runButton
+					)}
 				</div>
 				<Tabs
 					value={view}

@@ -1,5 +1,5 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	createElement,
 	memo,
@@ -12,6 +12,7 @@ import {
 	useState,
 } from "react";
 import Frame from "react-frame-component";
+import { useLocation, useNavigate } from "react-router";
 import { useClassMerge } from "../../hooks/useClassMerge";
 import { useCompiledTailwind } from "../../hooks/useCompiledTailwind";
 import { useComponentAnnotations } from "../../hooks/useComponentAnnotations";
@@ -34,7 +35,12 @@ import {
 	useStagePreviewDarkMode,
 } from "../../preview/stage-preview-dark-mode";
 import type { ProjectQueryScope } from "../../queries/project-scope";
-import { systemComponentQueryOptions } from "../../queries/system-components";
+import {
+	copyPublishedSystemComponentToDraft,
+	invalidateSystemComponents,
+	systemComponentQueryOptions,
+	systemComponentsQueryOptions,
+} from "../../queries/system-components";
 import {
 	type ComponentDraftEntity,
 	hydrateComponentDraft,
@@ -46,9 +52,12 @@ import {
 	useComponentDraftPreviewClassName,
 	useComponentDraftRootPath,
 	useComponentDraftSelectedPath,
+	useComponentDraftTemplateDirty,
+	useComponentDraftVariantsDirty,
 } from "../../stores/component-draft-store";
 import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import type { ClassMerge } from "../../utils/class-merge";
+import { buildSystemComponentSearch } from "../../utils/system-deep-link";
 import { resolveStageDoc } from "../../utils/tailwind-render-mode";
 import { componentAnnotationPinSource } from "../annotations/component-annotation-pins";
 import { Canvas } from "../stage/Canvas";
@@ -62,7 +71,10 @@ import { StageSelectionLayer } from "../stage/StageSelectionLayer";
 import { STAGE_NODE_ID_ATTRIBUTE } from "../stage/stage-interaction";
 import { componentDraftStageSelection } from "../stage/stage-selection-sources";
 import { Alert } from "../ui/alert";
+import { Button } from "../ui/button";
 import { Card } from "../ui/card";
+import { Skeleton } from "../ui/skeleton";
+import { discardOpenComponentDraft } from "./useGuardedComponentLocation";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -249,6 +261,18 @@ const ComponentStageFrame = memo(function ComponentStageFrame({
 	);
 });
 
+/** The stage's layout while a draft loads: an empty board on the canvas. */
+function ComponentStageSkeleton() {
+	return (
+		<div
+			className="flex min-h-0 flex-1 items-center justify-center bg-slate-200"
+			aria-busy="true"
+		>
+			<Skeleton className="h-48 w-80 bg-slate-100" />
+		</div>
+	);
+}
+
 export function ComponentDraftStage({
 	systemId,
 	componentId,
@@ -261,6 +285,38 @@ export function ComponentDraftStage({
 	const componentQuery = useQuery({
 		...systemComponentQueryOptions(systemId, componentId ?? "", projectScope),
 		enabled: componentId !== null,
+	});
+
+	const templateDirty = useComponentDraftTemplateDirty();
+	const variantsDirty = useComponentDraftVariantsDirty();
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const location = useLocation();
+	const listQuery = useQuery({
+		...systemComponentsQueryOptions(systemId, projectScope),
+		enabled: componentId !== null,
+	});
+	const createDraftMutation = useMutation({
+		mutationFn: async () => {
+			const revision = listQuery.data?.revision;
+			const published = componentQuery.data?.record.published;
+			if (!componentId || !revision) {
+				throw new Error("Components are still loading. Try again.");
+			}
+			return copyPublishedSystemComponentToDraft(systemId, componentId, {
+				expectedRevision: revision,
+				...(published?.currentVersion
+					? { versionId: published.currentVersion }
+					: {}),
+			});
+		},
+		onSuccess: (response) =>
+			invalidateSystemComponents(
+				queryClient,
+				systemId,
+				projectScope,
+				response.componentId,
+			),
 	});
 
 	const handleStageMount = useCallback(() => setDidMount(true), []);
@@ -343,44 +399,111 @@ export function ComponentDraftStage({
 	}
 
 	if (componentQuery.isPending) {
-		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 text-sm text-slate-500">
-				Loading component draft...
-			</div>
-		);
+		return <ComponentStageSkeleton />;
 	}
 
 	if (componentQuery.isError) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm">
-				<Alert variant="panel">
-					<span className="block font-medium">
-						Failed to load component draft
-					</span>
+			<div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-2 bg-slate-100 px-6 text-sm">
+				<Alert variant="panel" className="self-stretch">
+					<span className="block font-medium">Could not load this draft</span>
 					<span className="mt-1 block text-xs">
 						{(componentQuery.error as Error).message}
 					</span>
 				</Alert>
+				<Button
+					type="button"
+					variant="outlined"
+					className="px-3 py-1.5 text-xs"
+					onClick={() => void componentQuery.refetch()}
+				>
+					Retry
+				</Button>
 			</div>
 		);
 	}
 
-	if (!componentQuery.data.record.draft) {
+	const record = componentQuery.data.record;
+	if (!record.draft) {
+		const publishedVersion = record.published?.currentVersion;
 		return (
-			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-500">
-				This component does not have a draft.
+			<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-slate-100 px-6 text-center text-sm text-slate-700">
+				<p>
+					{publishedVersion
+						? `Published as v${publishedVersion}. No draft yet.`
+						: "No draft yet."}
+				</p>
+				{publishedVersion ? (
+					<Button
+						type="button"
+						variant="filled"
+						className="px-3 py-1.5 text-xs"
+						disabled={createDraftMutation.isPending}
+						onClick={() => createDraftMutation.mutate()}
+					>
+						{createDraftMutation.isPending ? "Creating draft" : "Create draft"}
+					</Button>
+				) : null}
+				{createDraftMutation.error ? (
+					<Alert variant="panel" className="text-left">
+						{createDraftMutation.error.message}
+					</Alert>
+				) : null}
 			</div>
 		);
 	}
 
+	const draft = record.draft;
 	if (draftComponentId !== componentId) {
+		// A clean draft of another component is replaced in a moment; only
+		// unsaved edits hold the stage.
+		if (!draftComponentId || !(templateDirty || variantsDirty)) {
+			return <ComponentStageSkeleton />;
+		}
+		const otherComponentId = draftComponentId;
 		return (
 			<div className="flex min-h-0 flex-1 flex-col justify-center bg-slate-100 px-6 text-sm">
-				<Card edge="border" tone="warning" className="px-4 py-3" role="alert">
-					<p className="font-medium">Unsaved draft is still open</p>
-					<p className="mt-1 text-xs">
-						Save or reload the current draft before editing this component.
-					</p>
+				<Card
+					edge="border"
+					tone="warning"
+					className="flex flex-col gap-3 px-4 py-3"
+					role="alert"
+				>
+					<p className="font-medium">Another component has unsaved changes.</p>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							type="button"
+							variant="outlined"
+							className="px-3 py-1.5 text-xs"
+							onClick={() =>
+								navigate({
+									pathname: location.pathname,
+									search: buildSystemComponentSearch(otherComponentId),
+								})
+							}
+						>
+							Go to that component
+						</Button>
+						<Button
+							type="button"
+							variant="outlined"
+							flavor="danger"
+							className="px-3 py-1.5 text-xs"
+							onClick={() => {
+								discardOpenComponentDraft();
+								hydrateComponentDraft({
+									componentId,
+									baseVersion: draft.baseVersion,
+									root: draft.root,
+									slots: draft.slots,
+									overrideTargets: draft.overrideTargets,
+									variants: draft.variants ?? null,
+								});
+							}}
+						>
+							Discard its changes
+						</Button>
+					</div>
 				</Card>
 			</div>
 		);

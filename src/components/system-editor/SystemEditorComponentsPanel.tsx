@@ -49,12 +49,15 @@ import {
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { OpenDesignTokensButton } from "../OpenDesignTokensButton";
 import { Alert } from "../ui/alert";
+import { ConfirmationDialog } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
+import { Skeleton } from "../ui/skeleton";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
+import { Tooltip } from "../ui/tooltip";
 import { ComponentDraftLayers } from "./ComponentDraftLayers";
 import { ComponentDraftStage } from "./ComponentDraftStage";
 import {
@@ -62,10 +65,12 @@ import {
 	nextUniqueComponentSlug,
 	slugifyComponentName,
 } from "./component-catalog";
+import { DisabledReason } from "./DisabledReason";
 import {
 	SystemEditorComponentContextPanel,
 	SystemEditorComponentContextSync,
 } from "./SystemEditorInspector";
+import { discardOpenComponentDraft } from "./useGuardedComponentLocation";
 import { useSaveComponentDraft } from "./useSaveComponentDraft";
 
 export function hasPublishableComponentDraftChanges({
@@ -129,19 +134,12 @@ function ComponentUsageBadge({
 	}
 
 	if (isPending) {
-		return (
-			<span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-				Checking usage
-			</span>
-		);
+		return <Skeleton className="h-4 w-14" />;
 	}
 
+	// The list shows the failure once, with its retry.
 	if (isError) {
-		return (
-			<span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
-				Usage unavailable
-			</span>
-		);
+		return null;
 	}
 
 	const summary = usage ?? emptyUsageSummary();
@@ -239,6 +237,18 @@ function ComponentWorkspaceActions({
 		!hasUnsavedDraftChanges &&
 		variantsValid &&
 		errorDiagnostics.length === 0;
+	// The first condition that keeps Publish disabled, as its tooltip.
+	const publishBlockedReason = canPublish
+		? null
+		: hasUnsavedDraftChanges
+			? "Save the draft first."
+			: !hasPublishableChanges
+				? "Nothing to publish."
+				: !variantsValid
+					? "Fix the variant errors first."
+					: errorDiagnostics.length > 0 || !componentQuery.data?.valid
+						? (errorDiagnostics[0]?.message ?? "Fix the draft's errors first.")
+						: null;
 	const [publishError, setPublishError] = useState<string | null>(null);
 	const { saveDraftMutation, saveError, canSave } = useSaveComponentDraft({
 		systemId,
@@ -317,35 +327,60 @@ function ComponentWorkspaceActions({
 		},
 	);
 
-	if (!componentId) {
+	// Nothing here works without a draft; the stage offers to create one.
+	if (!componentId || (!componentQuery.isPending && !hasDraft)) {
 		return null;
 	}
+
+	const reloadDraft = () => {
+		// Drops the local edits; the context sync then hydrates the draft
+		// that is on disk now.
+		discardOpenComponentDraft();
+		void invalidateSystemComponents(
+			queryClient,
+			systemId,
+			projectScope,
+			componentId,
+		);
+	};
 
 	return (
 		<div className="mt-auto flex shrink-0 flex-col gap-2 border-t border-slate-200 px-3 py-2">
 			<div className="flex flex-col gap-2">
-				<div className="min-w-0">
-					<p className="truncate font-mono text-[10px] text-slate-500">
-						{hasDraft
-							? draftConflict
-								? "Server draft changed"
+				<div className="flex min-h-4 min-w-0 items-center gap-2">
+					{componentQuery.isPending ? (
+						<Skeleton className="h-3 w-24" />
+					) : (
+						<p className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-500">
+							{draftConflict
+								? "Draft changed on disk"
 								: draftNeedsRoot
 									? "Root layer required"
 									: hasUnsavedDraftChanges
 										? "Unsaved changes"
 										: hasPublishableChanges
 											? "Draft saved"
-											: "No changes to publish"
-							: componentQuery.isPending
-								? "Loading draft"
-								: "No draft available"}
-					</p>
+											: "No changes to publish"}
+						</p>
+					)}
+					{draftConflict ? (
+						<Button
+							type="button"
+							variant="outlined"
+							flavor="danger"
+							className="shrink-0 px-2 py-1 text-xs"
+							disabled={saveDraftMutation.isPending}
+							onClick={reloadDraft}
+						>
+							Reload draft
+						</Button>
+					) : null}
 				</div>
-				<div className="grid grid-cols-2 gap-2">
+				<div className="flex gap-2">
 					<Button
 						type="button"
 						variant="block"
-						className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
+						className="flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
 						disabled={
 							!canSave ||
 							saveDraftMutation.isPending ||
@@ -356,20 +391,25 @@ function ComponentWorkspaceActions({
 						<Save className="size-3.5" aria-hidden="true" />
 						{saveDraftMutation.isPending ? "Saving" : "Save draft"}
 					</Button>
-					<Button
-						type="button"
-						variant="filled"
-						className="flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
-						disabled={
-							!canPublish ||
-							publishDraftMutation.isPending ||
-							saveDraftMutation.isPending
-						}
-						onClick={() => publishDraftMutation.mutate()}
+					<DisabledReason
+						reason={componentQuery.isPending ? null : publishBlockedReason}
+						className="flex flex-1"
 					>
-						<UploadCloud className="size-3.5" aria-hidden="true" />
-						{publishDraftMutation.isPending ? "Publishing" : "Publish draft"}
-					</Button>
+						<Button
+							type="button"
+							variant="filled"
+							className="flex flex-1 items-center justify-center gap-1.5 px-2 py-1.5 text-xs"
+							disabled={
+								!canPublish ||
+								publishDraftMutation.isPending ||
+								saveDraftMutation.isPending
+							}
+							onClick={() => publishDraftMutation.mutate()}
+						>
+							<UploadCloud className="size-3.5" aria-hidden="true" />
+							{publishDraftMutation.isPending ? "Publishing" : "Publish draft"}
+						</Button>
+					</DisabledReason>
 				</div>
 			</div>
 			{saveError || publishError ? (
@@ -437,15 +477,17 @@ export function ComponentContextHeaderContent({
 }) {
 	return (
 		<>
-			<Button
-				type="button"
-				variant="block"
-				className="flex size-7 shrink-0 items-center justify-center p-0"
-				onClick={onBack}
-				title="Back to components"
-			>
-				<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
-			</Button>
+			<Tooltip content="Back to components">
+				<Button
+					type="button"
+					variant="block"
+					className="flex size-7 shrink-0 items-center justify-center p-0"
+					onClick={onBack}
+					aria-label="Back to components"
+				>
+					<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+				</Button>
+			</Tooltip>
 			<div className="min-w-0 flex-1">
 				<Text
 					variant="label"
@@ -537,6 +579,70 @@ function ComponentRailEmptyState() {
 				Create a draft to start building the first system component in this
 				manifest.
 			</p>
+		</div>
+	);
+}
+
+function DeleteComponentDialog({
+	component,
+	instanceCount,
+	open,
+	onOpenChange,
+	isPending,
+	error,
+	onDelete,
+}: {
+	component: SystemComponentSummary;
+	instanceCount: number;
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	isPending: boolean;
+	error: string | null;
+	onDelete: () => void;
+}) {
+	const usage =
+		instanceCount > 0
+			? `${instanceCount} ${instanceCount === 1 ? "instance in designs uses" : "instances in designs use"} this component. `
+			: "";
+	return (
+		<ConfirmationDialog
+			open={open}
+			onOpenChange={(next) => {
+				if (!isPending) onOpenChange(next);
+			}}
+			title={`Delete ${component.name}?`}
+			description={
+				component.hasPublished
+					? `${usage}Deleting it removes all published versions and can't be undone.`
+					: `${usage}This can't be undone.`
+			}
+			icon={<Trash2 className="size-4" aria-hidden="true" />}
+			tone="destructive"
+			actionLabel={isPending ? "Deleting" : "Delete component"}
+			actionDisabled={isPending}
+			error={error}
+			onAction={onDelete}
+		/>
+	);
+}
+
+/** The component list's layout while the manifest loads. */
+function ComponentRailSkeleton() {
+	return (
+		<div className="flex min-h-0 flex-1 flex-col" aria-busy="true">
+			<div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-2 py-2">
+				<Skeleton className="h-7 w-full" />
+				<div className="flex items-center gap-2">
+					<Skeleton className="h-7 flex-1" />
+					<Skeleton className="h-7 w-16" />
+				</div>
+			</div>
+			<div className="flex flex-col gap-1 px-2 py-3">
+				{Array.from({ length: 6 }, (_, index) => (
+					// biome-ignore lint/suspicious/noArrayIndexKey: static placeholder rows.
+					<Skeleton key={index} className="h-12 w-full" />
+				))}
+			</div>
 		</div>
 	);
 }
@@ -831,6 +937,7 @@ export function SystemEditorComponentsRail({
 		},
 		onSuccess: async (response) => {
 			setDeleteError(null);
+			setDeleteOpen(false);
 			// This rail may have been remounted since the delete started, so the
 			// editor decides whether the deleted component is open now.
 			onComponentDeleted?.(response.componentId);
@@ -850,23 +957,7 @@ export function SystemEditorComponentsRail({
 		},
 	});
 
-	const handleDeleteComponent = useCallback(
-		(component: SystemComponentSummary) => {
-			if (deleteComponentMutation.isPending) {
-				return;
-			}
-			const confirmed = window.confirm(
-				component.hasPublished
-					? `Delete "${component.name}" and all published versions? This cannot be undone.`
-					: `Delete "${component.name}"? This cannot be undone.`,
-			);
-			if (!confirmed) {
-				return;
-			}
-			deleteComponentMutation.mutate(component);
-		},
-		[deleteComponentMutation],
-	);
+	const [deleteOpen, setDeleteOpen] = useState(false);
 
 	const handleCreateDraft = useCallback(() => {
 		const trimmed = draftName.trim();
@@ -881,9 +972,6 @@ export function SystemEditorComponentsRail({
 		const isCopying =
 			copyPublishedMutation.isPending &&
 			copyPublishedMutation.variables?.componentId === component.componentId;
-		const isDeleting =
-			deleteComponentMutation.isPending &&
-			deleteComponentMutation.variables?.componentId === component.componentId;
 		const usage = usageByComponent.get(component.componentId);
 		return (
 			<li key={component.componentId}>
@@ -913,36 +1001,20 @@ export function SystemEditorComponentsRail({
 						<ComponentStatusBadge summary={component} />
 					</Button>
 					{canCopyPublished ? (
-						<Button
-							type="button"
-							variant="block"
-							className="flex w-8 shrink-0 items-center justify-center p-0"
-							disabled={copyPublishedMutation.isPending}
-							title="Create draft from published version"
-							aria-label={`Create draft from published version for ${component.name}`}
-							onClick={() => copyPublishedMutation.mutate(component)}
-						>
-							<Pencil className="size-3.5" aria-hidden="true" />
-							<span className="sr-only">
-								{isCopying ? "Creating draft" : "Edit draft"}
-							</span>
-						</Button>
+						<Tooltip content="Create draft from published version">
+							<Button
+								type="button"
+								variant="block"
+								className="flex w-8 shrink-0 items-center justify-center p-0"
+								disabled={copyPublishedMutation.isPending}
+								aria-busy={isCopying}
+								aria-label={`Create draft from published version for ${component.name}`}
+								onClick={() => copyPublishedMutation.mutate(component)}
+							>
+								<Pencil className="size-3.5" aria-hidden="true" />
+							</Button>
+						</Tooltip>
 					) : null}
-					<Button
-						type="button"
-						variant="block"
-						flavor="danger"
-						className="flex w-8 shrink-0 items-center justify-center p-0"
-						disabled={deleteComponentMutation.isPending}
-						title="Delete component"
-						aria-label={`Delete ${component.name}`}
-						onClick={() => handleDeleteComponent(component)}
-					>
-						<Trash2 className="size-3.5" aria-hidden="true" />
-						<span className="sr-only">
-							{isDeleting ? "Deleting" : "Delete"}
-						</span>
-					</Button>
 				</div>
 			</li>
 		);
@@ -987,24 +1059,28 @@ export function SystemEditorComponentsRail({
 	};
 
 	if (componentsQuery.isPending) {
-		return (
-			<div className="flex min-h-0 flex-1 flex-col px-3 py-4">
-				<p className="text-sm text-slate-500">Loading components...</p>
-			</div>
-		);
+		return <ComponentRailSkeleton />;
 	}
 
 	if (componentsQuery.isError) {
 		return (
-			<div className="flex min-h-0 flex-1 flex-col px-3 py-4">
+			<div className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-4">
 				<Alert variant="panel">
 					<span className="block text-sm font-medium">
-						Failed to load components
+						Could not load components
 					</span>
 					<span className="mt-1 block text-xs">
 						{(componentsQuery.error as Error).message}
 					</span>
 				</Alert>
+				<Button
+					type="button"
+					variant="outlined"
+					className="self-start px-3 py-1.5 text-xs"
+					onClick={() => void componentsQuery.refetch()}
+				>
+					Retry
+				</Button>
 			</div>
 		);
 	}
@@ -1058,13 +1134,48 @@ export function SystemEditorComponentsRail({
 						className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
 					>
 						<ScrollArea className="h-full min-h-0">
-							<div className="px-3 py-3">
+							<div className="flex flex-col gap-6 px-3 py-3">
 								<SystemEditorComponentContextPanel
 									systemId={systemId}
 									projectScope={projectScope}
 									componentId={selectedComponentId}
 									mode="settings"
 								/>
+								{selectedSummary ? (
+									<section
+										className="flex flex-col gap-2 border-t border-slate-200 pt-4"
+										aria-label="Delete component"
+									>
+										<Button
+											type="button"
+											variant="outlined"
+											flavor="danger"
+											className="flex items-center gap-1.5 self-start px-2 py-1.5 text-xs"
+											onClick={() => {
+												deleteComponentMutation.reset();
+												setDeleteError(null);
+												setDeleteOpen(true);
+											}}
+										>
+											<Trash2 className="size-3.5" aria-hidden="true" />
+											Delete component
+										</Button>
+										<DeleteComponentDialog
+											component={selectedSummary}
+											instanceCount={
+												usageByComponent.get(selectedSummary.componentId)
+													?.usedByCount ?? 0
+											}
+											open={deleteOpen}
+											onOpenChange={setDeleteOpen}
+											isPending={deleteComponentMutation.isPending}
+											error={deleteError}
+											onDelete={() =>
+												deleteComponentMutation.mutate(selectedSummary)
+											}
+										/>
+									</section>
+								) : null}
 							</div>
 						</ScrollArea>
 					</TabsPanel>
@@ -1130,6 +1241,7 @@ export function SystemEditorComponentsRail({
 					<Input
 						id="system-editor-new-component-name"
 						variant="formCompact"
+						aria-label="New component name"
 						placeholder="New component name"
 						value={draftName}
 						onChange={(event) => setDraftName(event.target.value)}
@@ -1172,15 +1284,20 @@ export function SystemEditorComponentsRail({
 					{copyDraftError}
 				</Card>
 			) : null}
-			{deleteError ? (
-				<Card
-					edge="border"
-					tone="danger"
-					className="mx-2 mt-2 px-3 py-2 text-xs"
-					role="alert"
-				>
-					{deleteError}
-				</Card>
+			{usageQuery.isError && components.length > 0 ? (
+				<div className="mx-2 mt-2 flex items-start gap-2">
+					<Alert variant="panel" tone="warning" className="min-w-0 flex-1">
+						Could not check where components are used.
+					</Alert>
+					<Button
+						type="button"
+						variant="outlined"
+						className="px-2 py-1.5 text-xs"
+						onClick={() => void usageQuery.refetch()}
+					>
+						Retry
+					</Button>
+				</div>
 			) : null}
 			{components.length === 0 ? (
 				<ComponentRailEmptyState />

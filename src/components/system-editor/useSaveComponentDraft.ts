@@ -230,12 +230,23 @@ export function useSaveComponentDraft({
 		(templateDirty || variantsDirty);
 	const draftNeedsRoot =
 		hasUnsavedTemplateOrVariantChanges && templateDirty && !draftRootPath;
+	const hasChanges = metadataChanged || hasUnsavedTemplateOrVariantChanges;
+	// Why changes that exist can't be saved. A conflict blocks every save:
+	// the server refuses a draft whose loaded hash is out of date, so the
+	// way forward is to reload, which drops the local edits.
+	const saveBlockedReason = !hasChanges
+		? null
+		: draftConflict
+			? "This draft changed on disk. Reload it to drop your edits."
+			: !variantsValid
+				? "Fix the variant errors to save."
+				: draftNeedsRoot
+					? "Add a root layer to save."
+					: null;
 	const canSave =
 		Boolean(componentQuery.data?.record.draft) &&
-		!draftConflict &&
-		variantsValid &&
-		!draftNeedsRoot &&
-		(metadataChanged || hasUnsavedTemplateOrVariantChanges);
+		hasChanges &&
+		saveBlockedReason === null;
 
-	return { saveDraftMutation, saveError, canSave };
+	return { saveDraftMutation, saveError, canSave, saveBlockedReason };
 }

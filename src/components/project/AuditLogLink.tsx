@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { auditLogSummaryQueryOptions } from "../../queries/audit-log";
 import { useProjectConfig, useProjectScope } from "../contexts";
+import { Button } from "../ui/button";
+import { Skeleton } from "../ui/skeleton";
 import { Text } from "../ui/text";
+import { pluralize } from "./project-view-utils";
 
 export function AuditLogLink() {
 	const config = useProjectConfig();
@@ -17,24 +20,40 @@ export function AuditLogLink() {
 		return null;
 	}
 
-	const countLabel = auditLogQuery.isPending
-		? "..."
-		: auditLogQuery.isError
-			? "unavailable"
-			: `${auditLogQuery.data.count} entries`;
-
 	return (
 		<div className="border-t border-slate-200 px-4 py-3">
-			<div className="flex items-baseline justify-between gap-3">
+			<div
+				className="flex items-baseline justify-between gap-3"
+				aria-busy={auditLogQuery.isPending}
+			>
 				<Text variant="section-header">audit log</Text>
-				<a
-					href="/api/trickroom/audit-log/summary"
-					target="_blank"
-					rel="noreferrer"
-					className="shrink-0 px-1 py-0.5 font-mono text-[11px] text-cyan-700 hover:text-cyan-500 focus-visible:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-200 focus-visible:text-cyan-500"
-				>
-					{countLabel} -&gt;
-				</a>
+				{auditLogQuery.isPending ? (
+					<Skeleton className="h-4 w-20" />
+				) : auditLogQuery.isError ? (
+					<span className="flex items-center gap-2">
+						<Text tone="danger" className="text-[11px]">
+							Could not load
+						</Text>
+						<Button
+							variant="ghost"
+							className="px-1 py-0.5 text-[11px]"
+							disabled={auditLogQuery.isFetching}
+							onClick={() => void auditLogQuery.refetch()}
+						>
+							Retry
+						</Button>
+					</span>
+				) : (
+					<a
+						href="/api/trickroom/audit-log/summary"
+						target="_blank"
+						rel="noreferrer"
+						className="shrink-0 px-1 py-0.5 font-mono text-[11px] text-cyan-700 hover:text-cyan-500 focus-visible:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-200 focus-visible:text-cyan-500"
+					>
+						{auditLogQuery.data.count}{" "}
+						{pluralize(auditLogQuery.data.count, "entry", "entries")} -&gt;
+					</a>
+				)}
 			</div>
 		</div>
 	);

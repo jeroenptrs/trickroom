@@ -11,6 +11,7 @@ import {
 	validateSystemComponentMetadataSlug,
 	validateVariantDrafts,
 	variantDraftsToSchema,
+	variantFieldErrors,
 } from "./SystemEditorInspector";
 
 const twoAxisDrafts = (): VariantAxisDraft[] => [
@@ -640,5 +641,33 @@ describe("resolveVariantDraftSeedSource", () => {
 				serverVariants: undefined,
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("variantFieldErrors", () => {
+	it("has no field errors for a valid schema", () => {
+		expect(variantFieldErrors(twoAxisDrafts()).size).toBe(0);
+	});
+
+	it("keys each error to the field that has it", () => {
+		const drafts = twoAxisDrafts();
+		drafts[0] = {
+			...drafts[0],
+			key: "",
+			label: "",
+			values: [
+				{ id: "v-a", key: "same", label: "" },
+				{ id: "v-b", key: "same", label: "" },
+			],
+		};
+		drafts[1] = { ...drafts[1], key: "2size" };
+
+		const errors = variantFieldErrors(drafts);
+		expect(errors.get("axis-key:axis-tone")).toBe("Enter an axis key.");
+		expect(errors.get("axis-label:axis-tone")).toBe("Enter a label.");
+		expect(errors.get("value-key:v-a")).toBe(
+			"Another value on this axis uses this key.",
+		);
+		expect(errors.get("axis-key:axis-size")).toMatch(/^Start with a letter/);
 	});
 });

@@ -20,6 +20,7 @@ import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { Input } from "../ui/input";
+import { Skeleton } from "../ui/skeleton";
 import { getParentPathSegment, groupItemsByPathSegment } from "./path-segments";
 import {
 	ASSET_GRID_MIN_COLUMN_WIDTH,
@@ -71,7 +72,7 @@ function SystemEditorAssetCard({
 					</span>
 				) : null}
 				<img
-					alt={asset.alt || asset.name}
+					alt={asset.alt || ""}
 					className="size-full object-contain p-3"
 					loading="lazy"
 					src={systemAssetFileUrl(systemId, asset.id)}
@@ -173,8 +174,11 @@ function SystemAssetsToolbar({
 	onAddFormOpenChange,
 	onFilterChange,
 	onGroupByFolderChange,
+	isLoading = false,
 }: {
-	countLabel: string;
+	/** Draws the count chip and the toolbar buttons as skeletons. */
+	isLoading?: boolean;
+	countLabel: string | null;
 	filteredCountLabel: string;
 	addAssetPath: string;
 	filter: string;
@@ -197,20 +201,28 @@ function SystemAssetsToolbar({
 					<h1 className="truncate text-[15px] font-semibold text-slate-900">
 						Assets
 					</h1>
-					<span className="bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
-						{countLabel}
-					</span>
+					{isLoading ? (
+						<Skeleton className="h-4 w-16" />
+					) : countLabel ? (
+						<span className="bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+							{countLabel}
+						</span>
+					) : null}
 				</div>
-				<Button
-					type="button"
-					variant={groupByFolder ? "filled" : "outlined"}
-					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-					onClick={() => onGroupByFolderChange(!groupByFolder)}
-					aria-pressed={groupByFolder}
-				>
-					<FolderTree className="size-3.5" aria-hidden="true" />
-					Group folders
-				</Button>
+				{isLoading ? (
+					<Skeleton className="h-7 w-32" />
+				) : (
+					<Button
+						type="button"
+						variant={groupByFolder ? "filled" : "outlined"}
+						className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+						onClick={() => onGroupByFolderChange(!groupByFolder)}
+						aria-pressed={groupByFolder}
+					>
+						<FolderTree className="size-3.5" aria-hidden="true" />
+						Group folders
+					</Button>
+				)}
 			</div>
 			<div className="flex items-center gap-2">
 				<div className="relative min-w-0 flex-1">
@@ -231,17 +243,21 @@ function SystemAssetsToolbar({
 				<span className="sr-only" aria-live="polite">
 					{filteredCountLabel}
 				</span>
-				<Button
-					type="button"
-					variant={isAddFormOpen ? "outlined" : "filled"}
-					className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
-					onClick={() => onAddFormOpenChange(!isAddFormOpen)}
-					aria-expanded={isAddFormOpen}
-					aria-controls={ADD_ASSET_FORM_ID}
-				>
-					<Upload className="size-3.5" aria-hidden="true" />
-					Add asset
-				</Button>
+				{isLoading ? (
+					<Skeleton className="h-7 w-28" />
+				) : (
+					<Button
+						type="button"
+						variant={isAddFormOpen ? "outlined" : "filled"}
+						className="flex shrink-0 items-center gap-1.5 px-3 py-1.5"
+						onClick={() => onAddFormOpenChange(!isAddFormOpen)}
+						aria-expanded={isAddFormOpen}
+						aria-controls={ADD_ASSET_FORM_ID}
+					>
+						<Upload className="size-3.5" aria-hidden="true" />
+						Add asset
+					</Button>
+				)}
 			</div>
 			{isAddFormOpen ? (
 				<form
@@ -328,9 +344,7 @@ export function SystemEditorAssetsPanel({
 	const [assetActionError, setAssetActionError] = useState<string | null>(null);
 	const [isAddFormOpen, setIsAddFormOpen] = useState(false);
 	const [addAssetPath, setAddAssetPath] = useState("");
-	const assetCountLabel = assetsQuery.isPending
-		? "Loading"
-		: `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
+	const assetCountLabel = `${assets.length.toLocaleString()} asset${assets.length === 1 ? "" : "s"}`;
 	const normalizedFilter = assetFilter.trim().toLowerCase();
 	const filteredAssets = useMemo(() => {
 		const matches = normalizedFilter
@@ -427,25 +441,33 @@ export function SystemEditorAssetsPanel({
 		return (
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4">
 				<SystemAssetsToolbar
-					countLabel={assetCountLabel}
-					filteredCountLabel={filteredCountLabel}
+					countLabel={null}
+					filteredCountLabel=""
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupAssetsByFolder}
 					{...toolbarAddProps}
 					onFilterChange={setAssetFilter}
 					onGroupByFolderChange={setGroupAssetsByFolder}
+					isLoading
 				/>
-				<div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-3">
-					{[0, 1, 2].map((index) => (
+				{/* Same column width, 4:3 image and footer height as a real card. */}
+				<div
+					className="grid gap-3"
+					style={{
+						gridTemplateColumns: `repeat(auto-fill, minmax(${ASSET_GRID_MIN_COLUMN_WIDTH}px, 1fr))`,
+					}}
+					aria-busy="true"
+				>
+					{[0, 1, 2, 3, 4, 5].map((index) => (
 						<div
 							key={index}
-							className="flex min-w-0 animate-pulse flex-col border border-slate-200 bg-white"
+							className="flex min-w-0 flex-col border border-slate-200 bg-white"
 						>
-							<div className="aspect-square bg-slate-100" />
-							<div className="flex flex-col gap-2 border-t border-slate-100 px-3 py-2">
-								<div className="h-4 w-2/3 bg-slate-100" />
-								<div className="h-3 w-1/2 bg-slate-100" />
+							<Skeleton className="aspect-4/3 w-full" />
+							<div className="flex h-15 flex-col justify-center gap-1.5 border-t border-slate-100 px-3 py-2">
+								<Skeleton className="h-3.5 w-2/3" />
+								<Skeleton className="h-2.5 w-1/2" />
 							</div>
 						</div>
 					))}
@@ -458,7 +480,7 @@ export function SystemEditorAssetsPanel({
 		return (
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemAssetsToolbar
-					countLabel="Unavailable"
+					countLabel={null}
 					filteredCountLabel="Asset catalog unavailable"
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
@@ -467,8 +489,23 @@ export function SystemEditorAssetsPanel({
 					onFilterChange={setAssetFilter}
 					onGroupByFolderChange={setGroupAssetsByFolder}
 				/>
-				<Card edge="border" tone="danger" className="px-4 py-3 text-sm">
-					Failed to load assets: {(assetsQuery.error as Error).message}
+				<Card
+					edge="border"
+					tone="danger"
+					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
+				>
+					<span>
+						Failed to load assets: {(assetsQuery.error as Error).message}
+					</span>
+					<Button
+						type="button"
+						variant="outlined"
+						className="px-2 py-1 text-xs"
+						disabled={assetsQuery.isFetching}
+						onClick={() => assetsQuery.refetch()}
+					>
+						Retry
+					</Button>
 				</Card>
 			</div>
 		);

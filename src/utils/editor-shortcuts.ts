@@ -80,7 +80,9 @@ export function isEnterActivatedTarget(target: EventTarget | null) {
 
 export function hasOpenShortcutBlockingSurface() {
 	return Boolean(
-		document.querySelector('[role="dialog"], [data-shortcuts-disabled]'),
+		document.querySelector(
+			'[role="dialog"], [role="alertdialog"], [data-shortcuts-disabled]',
+		),
 	);
 }
 
@@ -152,4 +154,25 @@ export function focusEditorRegion(region: "rail" | "workspace" | "inspector") {
 		`[data-editor-region="${region}"]`,
 	);
 	target?.focus();
+}
+
+const isApplePlatform =
+	typeof navigator !== "undefined" &&
+	/Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || "");
+
+const appleKeyLabels: Record<string, string> = {
+	Mod: "⌘",
+	Alt: "⌥",
+	Shift: "⇧",
+};
+
+/**
+ * One notation per platform for a shortcut hint: `["Mod", "Enter"]` reads
+ * `⌘ Enter` on Apple platforms and `Ctrl+Enter` elsewhere.
+ */
+export function formatShortcut(keys: readonly string[]) {
+	if (isApplePlatform) {
+		return keys.map((key) => appleKeyLabels[key] ?? key).join(" ");
+	}
+	return keys.map((key) => (key === "Mod" ? "Ctrl" : key)).join("+");
 }

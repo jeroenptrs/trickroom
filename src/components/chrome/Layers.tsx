@@ -42,7 +42,6 @@ import {
 } from "../../recipes/ownership";
 import {
 	type DesignEntity,
-	deleteElement,
 	designStore,
 	moveElement,
 	renameElement,
@@ -103,6 +102,7 @@ import {
 	type EditorCommandPage,
 } from "./AddLayerCommandMenu";
 import { LayerContextMenu } from "./LayerContextMenu";
+import { LayerDeleteDialog, requestLayerDelete } from "./layer-delete";
 import { type PlacementIntent, useLayerInsertion } from "./useLayerInsertion";
 import { useLayerSelectionReveal } from "./useLayerSelectionReveal";
 
@@ -550,6 +550,7 @@ export const Layer = memo(function Layer({
 			<LayerContextMenu
 				id={id}
 				designId={designId}
+				isBoard={layer.parentId === null}
 				isRecipeOwned={isRecipeOwned}
 				layerName={layer.name}
 				recipeInstanceId={recipeMetadata?.instanceId ?? null}
@@ -568,7 +569,12 @@ export const Layer = memo(function Layer({
 						<div className={dropIndicator({ intent: dropIntent })} />
 					) : null}
 					{hasChildren ? (
-						<UnstyledButton className="shrink-0" onClick={toggleOpen}>
+						<UnstyledButton
+							className="shrink-0"
+							onClick={toggleOpen}
+							aria-expanded={open}
+							aria-label={`${open ? "Collapse" : "Expand"} ${layer.name}`}
+						>
 							<ChevronRight
 								className={icon({
 									open,
@@ -1100,7 +1106,7 @@ export function Layers({
 				(event.key === "Backspace" || event.key === "Delete") &&
 				selectedElement
 			) {
-				deleteElement(selectedElement.id);
+				requestLayerDelete(selectedElement.id);
 				handled = true;
 			} else if (!event.repeat && isShortcutLetter(event, "f")) {
 				addBasicLayer("container", placementIntent);
@@ -1140,25 +1146,6 @@ export function Layers({
 
 	useWindowKeyDown(handleLayerShortcut);
 
-	const selectionPath = useMemo(() => {
-		if (!selectedElement) {
-			return "";
-		}
-
-		const names: string[] = [];
-		let current: DesignEntity | undefined = selectedElement;
-		while (current) {
-			const name = current.props["data-trickroom-name"];
-			names.unshift(
-				(typeof name === "string" && name.trim()) ||
-					current.props["data-trickroom-component"],
-			);
-			current = current.parentId ? entitiesById[current.parentId] : undefined;
-		}
-
-		return names.join(" / ");
-	}, [selectedElement, entitiesById]);
-
 	return (
 		<div className={`flex min-h-0 flex-col ${className ?? ""}`}>
 			<div className="flex flex-row items-center gap-1 px-2 py-2">
@@ -1167,7 +1154,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!canInsertWithKeyboardIntent}
 					onClick={(event) => handleAddLayer("container", event)}
-					title="Add container"
+					title="Add container (F)"
+					aria-label="Add container"
 				>
 					<Frame className="size-4 text-slate-950" />
 				</Button>
@@ -1176,7 +1164,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!canInsertWithKeyboardIntent}
 					onClick={(event) => handleAddLayer("text", event)}
-					title="Add text"
+					title="Add text (T)"
+					aria-label="Add text"
 				>
 					<Type className="size-4 text-slate-950" />
 				</Button>
@@ -1185,7 +1174,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!canInsertWithKeyboardIntent}
 					onClick={handleOpenMenu}
-					title="Add element"
+					title="Add element (A)"
+					aria-label="Add element"
 				>
 					<Plus className="size-4 text-slate-950" />
 				</Button>
@@ -1195,7 +1185,8 @@ export function Layers({
 					className="px-2 py-1"
 					disabled={!lastAddedRef || !canInsertWithKeyboardIntent}
 					onClick={handleRepeatLast}
-					title="Repeat last added item"
+					title="Repeat last added item (.)"
+					aria-label="Repeat last added item"
 				>
 					<Repeat2 className="size-4 text-slate-950" />
 				</Button>
@@ -1256,11 +1247,7 @@ export function Layers({
 					})}
 				</div>
 			</ScrollArea>
-			{selectionPath ? (
-				<div className="shrink-0 truncate border-t border-slate-200 px-3 py-2 text-[10px] text-slate-400">
-					{selectionPath}
-				</div>
-			) : null}
+			<LayerDeleteDialog />
 		</div>
 	);
 }

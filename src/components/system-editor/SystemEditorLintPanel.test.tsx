@@ -225,7 +225,7 @@ describe("System editor lint page", () => {
 		expect(html).toContain("Regressed");
 		expect(html).toContain("max 1");
 		// The design side is null in this report.
-		expect(html).toContain("Not available yet");
+		expect(html).toContain("No design results in this report");
 		expect(html).not.toContain('aria-label="Design rules"');
 		// One clickable row per rule kind of the code summary.
 		expect(countMatches(html, /data-lint-rule="code\./)).toBe(3);
@@ -297,7 +297,7 @@ describe("System editor lint page", () => {
 
 	it("shows the design side when the report fills it", () => {
 		const html = renderLintPage({ report: fullLintReport });
-		expect(html).not.toContain("Not available yet");
+		expect(html).not.toContain("No design results in this report");
 		expect(html).toContain('aria-label="Design rules"');
 		expect(countMatches(html, /data-lint-rule="design\./)).toBe(2);
 	});
@@ -372,7 +372,7 @@ describe("System editor lint page", () => {
 
 	it("shows the design map empty while the report has no design side", () => {
 		const empty = renderLintPage({ state: { view: "designs" } });
-		expect(empty).toContain("No design-side results yet");
+		expect(empty).toContain("No design results in this report");
 
 		const full = renderLintPage({
 			report: fullLintReport,
@@ -411,7 +411,9 @@ describe("System editor lint page", () => {
 		expect(html).toContain("Inspector");
 		expect(html).toContain("Not generated");
 		expect(html).toContain("Run &quot;trickroom codegen&quot;");
-		expect(html).toContain("This report has no design-side results yet.");
+		expect(html).toContain(
+			"No design results in this report. Run lint to include designs.",
+		);
 		expect(html).toContain("Show 1 in findings");
 	});
 
@@ -471,7 +473,7 @@ describe("System editor lint rule configuration", () => {
 		expect(html).toContain("wrapper modules");
 		expect(html).toContain("src/**/*.{ts,tsx,js,jsx,mjs,cjs}");
 		expect(html).toContain("Save lint.json");
-		expect(html).toContain("No changes");
+		expect(html).not.toContain("Unsaved changes");
 	});
 
 	it("explains an absent file and shows the issues of an invalid one", () => {

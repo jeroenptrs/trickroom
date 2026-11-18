@@ -301,9 +301,14 @@ export async function sendAnnotationDrafts(
  * Closes the open round. Annotations in it keep their status; the next
  * send opens a new round.
  */
+/**
+ * Closes the open round. Nothing is lost, so it does not ask first: the
+ * toast says how many of its annotations stay open (`stillOpen`).
+ */
 export async function closeOpenRound(
 	container: AnnotationContainer,
 	round: Pick<OpenRound, "id">,
+	stillOpen = 0,
 ) {
 	// The answer is as old as the request: a round read or send that started
 	// later is newer, and may already show the next round.
@@ -315,7 +320,13 @@ export async function closeOpenRound(
 		if (editorAnnotationsStore.get().round?.id === round.id) {
 			applyOpenRound(roundToken, container, null, null);
 		}
-		toast.success("Round closed", { id: "annotation-round-closed" });
+		toast.success("Round closed", {
+			id: "annotation-round-closed",
+			description:
+				stillOpen > 0
+					? `${stillOpen} ${stillOpen === 1 ? "annotation stays" : "annotations stay"} open`
+					: undefined,
+		});
 		return answer.round;
 	} catch (error) {
 		await reportAnnotationWriteError(error, null);

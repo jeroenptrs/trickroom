@@ -44,7 +44,7 @@ function WelcomePane({ projectRoot }: { projectRoot: string }) {
 				hints={[
 					{ kbd: "⌘N", label: "new design" },
 					{ kbd: "⌘⇧N", label: "new system" },
-					{ kbd: "⌘K", label: "switch project" },
+					{ kbd: "⌘P", label: "switch project" },
 				]}
 			/>
 		</EmptyState>
@@ -117,7 +117,12 @@ export function ProjectPane({
 		);
 	}
 
-	if (designs.length === 0 && systemEntries.length === 0) {
+	// An unloaded list is not an empty project.
+	if (
+		designsQuery.isSuccess &&
+		designs.length === 0 &&
+		systemEntries.length === 0
+	) {
 		return <WelcomePane projectRoot={projectRoot} />;
 	}
 

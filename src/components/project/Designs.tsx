@@ -24,6 +24,7 @@ import { EmptyState } from "../ui/empty-state";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
+import { Skeleton } from "../ui/skeleton";
 import { Text } from "../ui/text";
 import {
 	formatRelativeTime,
@@ -162,30 +163,39 @@ export function Designs({
 			<ScrollArea className="flex-1 min-h-0">
 				{/* Content */}
 				{designsQuery.isPending ? (
-					<div className="pointer-events-none divide-y divide-slate-100">
+					<div
+						className="pointer-events-none divide-y divide-slate-100"
+						aria-busy="true"
+					>
 						{[
 							"design-skeleton-a",
 							"design-skeleton-b",
 							"design-skeleton-c",
 						].map((key) => (
-							<div
-								key={key}
-								className="flex animate-pulse items-center gap-3 px-3 py-2.5"
-							>
-								<div className="size-10 shrink-0 bg-slate-200" />
-								<div className="min-w-0 flex-1 space-y-2">
-									<div className="h-3 w-1/3 bg-slate-200" />
-									<div className="h-2 w-1/4 bg-slate-200" />
+							<div key={key} className="flex items-center gap-3 px-4 py-3">
+								<Skeleton className="size-10" />
+								<div className="flex min-w-0 flex-1 flex-col gap-2">
+									<Skeleton className="h-3 w-1/3" />
+									<Skeleton className="h-2 w-1/4" />
 								</div>
-								<div className="h-2 w-10 bg-slate-200" />
 							</div>
 						))}
 					</div>
 				) : null}
 				{designsQuery.isError ? (
-					<Alert variant="panel" className="mx-4 my-3">
-						Failed to load designs: {designsErrorMessage}
-					</Alert>
+					<div className="mx-4 my-3 flex items-start gap-2">
+						<Alert variant="panel" className="min-w-0 flex-1">
+							Failed to load designs: {designsErrorMessage}
+						</Alert>
+						<Button
+							variant="outlined"
+							className="shrink-0 px-2 py-1 text-xs"
+							disabled={designsQuery.isFetching}
+							onClick={() => void designsQuery.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
 				) : null}
 				{createDesignMutation.isError ? (
 					<Alert variant="panel" className="mx-4 my-3">

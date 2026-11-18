@@ -376,9 +376,9 @@ export function ResponsiveStageFrameWrapper({
 								</span>
 							) : null}
 						</button>
-						<div className="relative h-2 rounded bg-slate-200">
+						<div className="relative h-2 bg-slate-200">
 							<div
-								className="absolute inset-y-0 left-0 rounded bg-cyan-200"
+								className="absolute inset-y-0 left-0 bg-cyan-200"
 								style={{
 									width: `${
 										activeBreakpoint?.px

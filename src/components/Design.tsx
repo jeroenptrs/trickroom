@@ -1,7 +1,9 @@
 import { useHotkey } from "@tanstack/react-hotkeys";
 import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, FileWarning } from "lucide-react";
 import {
 	memo,
+	type ReactNode,
 	type RefObject,
 	useCallback,
 	useEffect,
@@ -11,7 +13,7 @@ import {
 	useState,
 } from "react";
 import Frame from "react-frame-component";
-import { useParams } from "react-router";
+import { Navigate, useNavigate, useParams } from "react-router";
 import { useClassMerge } from "../hooks/useClassMerge";
 import { useCompiledTailwind } from "../hooks/useCompiledTailwind";
 import { useDesignAnnotations } from "../hooks/useDesignAnnotations";
@@ -90,6 +92,9 @@ import { StageChangeHighlight } from "./stage/StageChangeHighlight";
 import { StageFocusHighlight } from "./stage/StageFocusHighlight";
 import { StageSelectionLayer } from "./stage/StageSelectionLayer";
 import { designStageSelection } from "./stage/stage-selection-sources";
+import { Button } from "./ui/button";
+import { EmptyState } from "./ui/empty-state";
+import { Skeleton } from "./ui/skeleton";
 
 const stageDoc = resolveStageDoc(stageDocRaw);
 
@@ -374,28 +379,44 @@ export function Design() {
 		[responsiveFitScale, responsiveZoom],
 	);
 
-	// TODO: make isLoading and hasError work with a rendered sidebar and iframe
 	if (!designId) {
-		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Missing design id
-			</div>
-		);
+		return <Navigate to="/" replace />;
 	}
 
 	if (designQuery.isError) {
 		return (
-			<div className="absolute left-3 top-3 z-30 bg-red-500 px-2 py-1 text-xs text-white">
-				Failed to load design data: {errorMessage}
-			</div>
+			<DesignLoadFrame>
+				<EmptyState
+					className="flex-1"
+					icon={FileWarning}
+					title="Could not open this design"
+					description={errorMessage}
+					action={
+						<div className="flex gap-2">
+							<Button
+								variant="filled"
+								className="px-3 py-1.5 text-xs"
+								disabled={designQuery.isFetching}
+								onClick={() => void designQuery.refetch()}
+							>
+								Retry
+							</Button>
+							<BackToProjectButton variant="outlined" />
+						</div>
+					}
+				/>
+			</DesignLoadFrame>
 		);
 	}
 
 	if (designQuery.isPending) {
 		return (
-			<div className="pointer-events-none absolute left-3 top-3 z-30 bg-slate-500 px-2 py-1 text-xs text-white">
-				Loading design data...
-			</div>
+			<DesignLoadFrame busy>
+				<div className="flex flex-1 gap-4 p-8">
+					<Skeleton className="h-[480px] w-[640px] max-w-full" />
+					<Skeleton className="h-[480px] w-[320px] max-w-full" />
+				</div>
+			</DesignLoadFrame>
 		);
 	}
 
@@ -414,5 +435,70 @@ export function Design() {
 			</IFrameViewContext.Provider>
 			<DesignConflictDialog />
 		</>
+	);
+}
+
+function BackToProjectButton({ variant }: { variant: "outlined" | "block" }) {
+	const navigate = useNavigate();
+	if (variant === "outlined") {
+		return (
+			<Button
+				variant="outlined"
+				className="px-3 py-1.5 text-xs"
+				onClick={() => navigate("/")}
+			>
+				Back to project
+			</Button>
+		);
+	}
+
+	return (
+		<Button
+			variant="block"
+			className="flex size-7 shrink-0 items-center justify-center p-0"
+			onClick={() => navigate("/")}
+			title="Back to project"
+			aria-label="Back to project"
+		>
+			<ArrowLeft className="size-4 text-slate-500" aria-hidden="true" />
+		</Button>
+	);
+}
+
+/**
+ * The editor's frame while the design loads or after it failed to: the
+ * toolbar row with the back button, and the stage area for `children`.
+ * Loading turns the toolbar controls into skeletons.
+ */
+function DesignLoadFrame({
+	busy = false,
+	children,
+}: {
+	busy?: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<div
+			className="absolute inset-0 z-10 flex min-h-0 flex-col bg-slate-100 text-xs text-slate-950"
+			aria-busy={busy || undefined}
+		>
+			<header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-3">
+				<BackToProjectButton variant="block" />
+				{busy ? (
+					<>
+						<div className="flex w-[200px] flex-col gap-1">
+							<Skeleton className="h-3.5 w-32" />
+							<Skeleton className="h-2.5 w-20" />
+						</div>
+						<div className="flex-1" />
+						<Skeleton className="h-7 w-20" />
+						<Skeleton className="h-7 w-16" />
+						<Skeleton className="h-7 w-40" />
+						<Skeleton className="size-7" />
+					</>
+				) : null}
+			</header>
+			<div className="relative flex min-h-0 flex-1">{children}</div>
+		</div>
 	);
 }

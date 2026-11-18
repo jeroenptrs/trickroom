@@ -17,6 +17,7 @@ import { buildSystemComponentPath } from "../../../utils/system-deep-link";
 import { formatRelativeTime } from "../../project/project-view-utils";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
+import { Skeleton } from "../../ui/skeleton";
 import { StateCell } from "../../ui/state-cell";
 import { Text } from "../../ui/text";
 import {
@@ -49,10 +50,8 @@ export function SystemEditorLintRail({
 	projectScope?: ProjectQueryScope;
 }) {
 	const view = useLintDashboardView();
-	const { report, currentContractHash, hasNoReport } = useSystemLint(
-		systemId,
-		projectScope,
-	);
+	const { reportQuery, report, currentContractHash, hasNoReport } =
+		useSystemLint(systemId, projectScope);
 	const gapCount = useMemo(
 		() => (report ? countCoverage(report.components).withGaps : null),
 		[report],
@@ -71,7 +70,7 @@ export function SystemEditorLintRail({
 			case "designs":
 				return report.designs
 					? `${countReportDesigns(report.designs)} designs`
-					: "n/a";
+					: null;
 			case "findings":
 				return String(report.findings.length);
 			default:
@@ -118,11 +117,13 @@ export function SystemEditorLintRail({
 							generated {formatRelativeTime(report.generatedAt)}
 						</Text>
 					</>
-				) : (
+				) : reportQuery.isPending ? (
+					<Skeleton className="h-4 w-20" />
+				) : hasNoReport ? (
 					<Text tone="faint" className="text-[11px]">
-						{hasNoReport ? "Not run yet." : "Loading…"}
+						Not run yet.
 					</Text>
-				)}
+				) : null}
 			</div>
 		</div>
 	);
@@ -303,10 +304,16 @@ function FindingInspector({
 							value={designNames.get(location.design) ?? location.design}
 						/>
 						{location.board ? (
-							<Field label="Board" value={location.board} />
+							<Field
+								label="Board"
+								value={designNames.get(location.board) ?? location.board}
+							/>
 						) : null}
 						{location.element ? (
-							<Field label="Element" value={location.element} />
+							<Field
+								label="Layer"
+								value={designNames.get(location.element) ?? location.element}
+							/>
 						) : null}
 						{location.path ? (
 							<Field label="Path" value={location.path} />
@@ -459,7 +466,7 @@ function ComponentInspector({
 					{component.name}
 				</Text>
 				<Text tone="faint" className="font-mono text-[11px]">
-					{component.slug} · {component.componentId}
+					{component.slug}
 				</Text>
 			</div>
 			<ul className="flex flex-col gap-2">
@@ -560,10 +567,11 @@ function DesignInspector({
 				<Text className="text-sm font-medium text-slate-900">
 					{designNames.get(design) ?? design}
 				</Text>
-				<Text tone="faint" className="font-mono text-[11px]">
-					{design}
-					{board ? ` › ${board}` : ""}
-				</Text>
+				{board ? (
+					<Text tone="faint" className="text-[11px]">
+						{designNames.get(board) ?? board}
+					</Text>
+				) : null}
 			</div>
 			<div className="flex flex-col">
 				{board === null ? (
@@ -610,10 +618,7 @@ export function SystemEditorLintInspector({
 }) {
 	const selection = useLintSelection();
 	const { report } = useSystemLint(systemId, projectScope);
-	const designNames = useDesignNames(
-		Boolean(report?.designs?.length),
-		projectScope,
-	);
+	const designNames = useDesignNames(report, projectScope);
 	if (!report || !selection) {
 		return (
 			<Text tone="faint" className="text-xs">

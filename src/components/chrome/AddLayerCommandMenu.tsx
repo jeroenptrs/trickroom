@@ -39,6 +39,7 @@ import {
 	CommandList,
 	CommandRoot,
 } from "../ui/command";
+import { errorReason, RetryError } from "./RetryError";
 import {
 	getRegistryPickerSections,
 	getUserComponentPickerSections,
@@ -70,8 +71,6 @@ export type EditorRootCommandGroup = {
 const LIBRARY_IDS = availableRegistries.filter(
 	(library): library is RegistryId => library !== "trickroom",
 );
-
-const SLOT_DISABLED_REASON = "This recipe slot does not allow that child";
 
 type AddLayerCommandMenuProps = {
 	open: boolean;
@@ -229,6 +228,9 @@ export function AddLayerCommandMenu({
 			: intent;
 
 	const canInsertHere = insertion.canInsert(effectiveIntent);
+	const blockedReason =
+		insertion.blockedReason(effectiveIntent) ?? "Can't insert here";
+	const systemComponentsQuery = insertion.systemComponentsQuery;
 	const { lastAddedRef } = insertion;
 
 	// Refocus the search input whenever the menu opens or changes page (the
@@ -297,7 +299,11 @@ export function AddLayerCommandMenu({
 				label={meta.label}
 				secondary={meta.secondary}
 				disabled={!allowed}
-				disabledReason={SLOT_DISABLED_REASON}
+				disabledReason={
+					canInsertHere
+						? `This slot doesn't accept ${meta.label}`
+						: blockedReason
+				}
 				onSelect={() => addPickerItem(item, library)}
 			/>
 		);
@@ -419,7 +425,7 @@ export function AddLayerCommandMenu({
 											label="Container"
 											shortcut="F"
 											disabled={!canInsertHere}
-											disabledReason="Cannot insert here"
+											disabledReason={blockedReason}
 											onSelect={() => {
 												if (
 													insertion.addBasicLayer("container", effectiveIntent)
@@ -440,7 +446,7 @@ export function AddLayerCommandMenu({
 											label="Text"
 											shortcut="T"
 											disabled={!canInsertHere}
-											disabledReason="Cannot insert here"
+											disabledReason={blockedReason}
 											onSelect={() => {
 												if (insertion.addBasicLayer("text", effectiveIntent)) {
 													close();
@@ -460,7 +466,7 @@ export function AddLayerCommandMenu({
 												label={`Repeat ${lastAddedLabel}`}
 												shortcut="."
 												disabled={!canInsertHere}
-												disabledReason="Cannot insert here"
+												disabledReason={blockedReason}
 												onSelect={() => {
 													if (insertion.repeatLast(effectiveIntent)) {
 														close();
@@ -469,6 +475,17 @@ export function AddLayerCommandMenu({
 											/>
 										) : null}
 									</CommandGroup>
+
+									{systemComponentsQuery.isError ? (
+										<div className="px-3 py-2">
+											<RetryError
+												message="Could not load your system's components"
+												reason={errorReason(systemComponentsQuery.error)}
+												retrying={systemComponentsQuery.isFetching}
+												onRetry={() => void systemComponentsQuery.refetch()}
+											/>
+										</div>
+									) : null}
 
 									{userSections.map((section) => (
 										<CommandGroup
@@ -502,7 +519,7 @@ export function AddLayerCommandMenu({
 														label={item.component.name}
 														secondary={`${item.component.slug} · v${item.component.currentVersion}`}
 														disabled={!allowed || !canInsertHere}
-														disabledReason={SLOT_DISABLED_REASON}
+														disabledReason={blockedReason}
 														onSelect={() => {
 															void insertion
 																.addSystemComponent(
@@ -589,7 +606,7 @@ export function AddLayerCommandMenu({
 								</CommandFooterHint>
 								<CommandFooterHint>
 									<CommandKeyBadge>↵</CommandKeyBadge>
-									<span>insert</span>
+									<span>{page === "root" ? "run" : "insert"}</span>
 								</CommandFooterHint>
 								<CommandFooterHint>
 									<CommandKeyBadge>esc</CommandKeyBadge>

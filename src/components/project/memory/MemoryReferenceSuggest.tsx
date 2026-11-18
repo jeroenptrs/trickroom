@@ -5,6 +5,7 @@ import {
 } from "../../../queries/memory";
 import type { ProjectQueryScope } from "../../../queries/project-scope";
 import type { MemoryReferenceType } from "../../../utils/memory-references.shared";
+import { Skeleton } from "../../ui/skeleton";
 import { Text } from "../../ui/text";
 import {
 	type ActiveReferenceTrigger,
@@ -101,7 +102,14 @@ function MemoryReferenceTargetSuggest({
 			aria-label={`${MEMORY_REFERENCE_TYPE_LABELS[trigger.type]} targets`}
 		>
 			{targetsQuery.isPending ? (
-				<Text className="px-2.5 py-2 text-xs text-slate-500">Loading…</Text>
+				<div className="flex flex-col gap-2 px-2.5 py-2" aria-busy="true">
+					<Skeleton className="h-3 w-32" />
+					<Skeleton className="h-3 w-24" />
+				</div>
+			) : targetsQuery.isError ? (
+				<Text className="px-2.5 py-2 text-xs text-red-900">
+					Could not load targets.
+				</Text>
 			) : targets.length === 0 ? (
 				<Text className="px-2.5 py-2 text-xs text-slate-500">
 					No matching targets.

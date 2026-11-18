@@ -12,18 +12,19 @@ import {
 import {
 	describeAnnotationActor,
 	describeChangeCount,
+	formatAnnotationEntryTime,
 } from "../../utils/annotation-presentation";
 import { Button } from "../ui/button";
 
-const timeFormat = new Intl.DateTimeFormat(undefined, {
-	hour: "2-digit",
-	minute: "2-digit",
-});
-
-const formatTime = (at: string) => {
-	const date = new Date(at);
-	return Number.isNaN(date.getTime()) ? "" : timeFormat.format(date);
-};
+function EntryTime({ at }: { at: string }) {
+	const time = formatAnnotationEntryTime(at);
+	if (!time) return null;
+	return (
+		<time className="ml-auto shrink-0" dateTime={at} title={time.full}>
+			{time.label}
+		</time>
+	);
+}
 
 export type AnnotationChangeActions = {
 	/** Reveals and flashes layers (all of a change's, or one of them). */
@@ -281,7 +282,7 @@ export function AnnotationEntries({
 									{label}
 								</span>
 							) : null}
-							<span className="ml-auto shrink-0">{formatTime(entry.at)}</span>
+							<EntryTime at={entry.at} />
 						</div>
 						<EntryBody
 							entry={entry}

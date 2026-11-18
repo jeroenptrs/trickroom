@@ -9,7 +9,7 @@ const queryClient = new QueryClient();
 
 // Capture pages are what design_screenshot and design_export photograph.
 // The screenshot service opens them directly, so no toast may paint into
-// the image (for example the "Your systems need attention" toast).
+// the image (for example the system sync attention toasts).
 const isCaptureRoute = window.location.pathname.startsWith("/capture/");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

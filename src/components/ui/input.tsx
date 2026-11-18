@@ -23,7 +23,9 @@ const input = tv({
 			form: "bg-transparent px-3 py-2 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500",
 			formCompact:
 				"bg-white px-2 py-1.5 text-sm inset-shadow-slate-200 focus-visible:inset-shadow-cyan-500",
-			formEmbedded: "bg-transparent px-2 py-2 text-sm inset-shadow-transparent",
+			// InputGroup draws the frame and its invalid state.
+			formEmbedded:
+				"bg-transparent px-2 py-2 text-sm inset-shadow-transparent aria-invalid:inset-shadow-transparent",
 		},
 	},
 });

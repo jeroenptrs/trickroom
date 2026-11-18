@@ -18,7 +18,6 @@ import {
 	isRecipeRoot,
 } from "../../recipes/ownership";
 import { isLiveAnnotationStatus } from "../../services/annotation-model";
-import { ANNOTATION_MODE_SHORTCUT_LABEL } from "../../stores/annotation-mode-store";
 import {
 	type DesignEntity,
 	designStore,
@@ -48,6 +47,7 @@ import type {
 	RecipeTemplateNode,
 } from "../../types";
 import { type ClassLayer, createClassLayer } from "../../utils/class-layers";
+import { formatShortcut } from "../../utils/editor-shortcuts";
 import { assetIdProp, iconIdProp } from "../../utils/resource-props";
 import type { SystemComponentInstanceOverrides } from "../../utils/system-component-markers";
 import {
@@ -77,6 +77,8 @@ import { Button } from "../ui/button";
 import { InputField } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import { ScrollArea } from "../ui/scroll-area";
+import { Select } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
 import { Switch } from "../ui/switch";
 import { Tabs, TabsList, TabsPanel, TabsTab } from "../ui/tabs";
 import { Text } from "../ui/text";
@@ -96,6 +98,7 @@ import {
 } from "./DesignLintFindings";
 import { DesignSystemPicker } from "./DesignSystemPicker";
 import { LayerBreadcrumb } from "./LayerBreadcrumb";
+import { errorReason, RetryError } from "./RetryError";
 import { TextareaControl } from "./TextareaControl";
 
 type ComponentControlProps = {
@@ -451,34 +454,40 @@ function AssetPicker({
 					className="h-16 w-full bg-slate-100 object-contain object-left"
 				/>
 			) : null}
-			<select
-				id={`${elementId}-asset`}
-				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
-				value={value}
-				disabled={!systemId || assetsQuery.isPending}
-				onChange={(event) =>
-					(
-						onChange ??
-						((assetId) =>
-							updateElementProps(elementId, {
-								[assetIdProp]: assetId,
-							}))
-					)(event.currentTarget.value)
-				}
-			>
-				<option value="">
-					{!systemId
-						? "No linked system"
-						: assetsQuery.isPending
-							? "Loading assets"
-							: "No asset"}
-				</option>
-				{assets.map((asset) => (
-					<option key={asset.id} value={asset.id}>
-						{asset.name}
+			{systemId && assetsQuery.isLoading ? (
+				<Skeleton className="h-5 w-full" />
+			) : systemId && assetsQuery.isError ? (
+				<RetryError
+					message="Could not load assets"
+					reason={errorReason(assetsQuery.error)}
+					retrying={assetsQuery.isFetching}
+					onRetry={() => void assetsQuery.refetch()}
+				/>
+			) : (
+				<Select
+					id={`${elementId}-asset`}
+					value={value}
+					disabled={!systemId}
+					onChange={(event) =>
+						(
+							onChange ??
+							((assetId) =>
+								updateElementProps(elementId, {
+									[assetIdProp]: assetId,
+								}))
+						)(event.currentTarget.value)
+					}
+				>
+					<option value="">
+						{!systemId ? "No linked system" : "No asset"}
 					</option>
-				))}
-			</select>
+					{assets.map((asset) => (
+						<option key={asset.id} value={asset.id}>
+							{asset.name}
+						</option>
+					))}
+				</Select>
+			)}
 		</div>
 	);
 }
@@ -520,34 +529,38 @@ function IconPicker({
 					</span>
 				</div>
 			) : null}
-			<select
-				id={`${elementId}-icon`}
-				className="w-full border-none bg-slate-200/60 px-1 py-0.5 text-xs text-slate-950 inset-shadow-[0_0_0_1px_transparent] focus:outline-none focus:inset-shadow-[0_0_0_1px_#67e8f9]"
-				value={value}
-				disabled={!systemId || iconsQuery.isPending}
-				onChange={(event) =>
-					(
-						onChange ??
-						((iconId) =>
-							updateElementProps(elementId, {
-								[iconIdProp]: iconId,
-							}))
-					)(event.currentTarget.value)
-				}
-			>
-				<option value="">
-					{!systemId
-						? "No linked system"
-						: iconsQuery.isPending
-							? "Loading icons"
-							: "No icon"}
-				</option>
-				{icons.map((icon) => (
-					<option key={icon.id} value={icon.id}>
-						{icon.id}
-					</option>
-				))}
-			</select>
+			{systemId && iconsQuery.isLoading ? (
+				<Skeleton className="h-5 w-full" />
+			) : systemId && iconsQuery.isError ? (
+				<RetryError
+					message="Could not load icons"
+					reason={errorReason(iconsQuery.error)}
+					retrying={iconsQuery.isFetching}
+					onRetry={() => void iconsQuery.refetch()}
+				/>
+			) : (
+				<Select
+					id={`${elementId}-icon`}
+					value={value}
+					disabled={!systemId}
+					onChange={(event) =>
+						(
+							onChange ??
+							((iconId) =>
+								updateElementProps(elementId, {
+									[iconIdProp]: iconId,
+								}))
+						)(event.currentTarget.value)
+					}
+				>
+					<option value="">{!systemId ? "No linked system" : "No icon"}</option>
+					{icons.map((icon) => (
+						<option key={icon.id} value={icon.id}>
+							{icon.id}
+						</option>
+					))}
+				</Select>
+			)}
 		</div>
 	);
 }
@@ -739,21 +752,31 @@ export function resolveAttachedComponentClassInventoryLayers({
 	return base ? [base, ...layers] : layers;
 }
 
-const KBD_MAP = [
-	{ key: "F", label: "Add frame" },
+const KBD_MAP: readonly { key: string; label: string }[] = [
+	{ key: "F", label: "Add container" },
 	{ key: "T", label: "Add text" },
 	{ key: "A", label: "Add element" },
-	{ key: ".", label: "Repeat last" },
+	{ key: ".", label: "Repeat last added item" },
+	{ key: `${formatShortcut(["Alt"])} + add`, label: "Insert inside" },
+	{ key: `${formatShortcut(["Shift"])} + add`, label: "Insert before" },
 	{ key: "R", label: "Rename layer" },
-	{ key: "Del", label: "Delete layer" },
+	{ key: "Delete", label: "Delete layer" },
 	{ key: "J / ↓", label: "Next layer" },
-	{ key: "K / ↑", label: "Prev layer" },
-	{ key: "L / →", label: "Enter layer" },
-	{ key: "H / ←", label: "Exit layer" },
-	{ key: "⌥ [", label: "Toggle layers" },
-	{ key: "⌥ ]", label: "Toggle properties" },
-	{ key: ANNOTATION_MODE_SHORTCUT_LABEL, label: "Toggle annotation mode" },
-] as const;
+	{ key: "K / ↑", label: "Previous layer" },
+	{ key: "L / →", label: "Expand or enter layer" },
+	{ key: "H / ←", label: "Collapse or exit layer" },
+	{ key: "Enter", label: "Select first child" },
+	{ key: formatShortcut(["Shift", "Enter"]), label: "Select parent" },
+	{ key: "Home / End", label: "First or last layer" },
+	{ key: formatShortcut(["Mod", "Shift", "↑ / ↓"]), label: "Move layer" },
+	{ key: formatShortcut(["Mod", "K"]), label: "Command menu" },
+	{ key: formatShortcut(["Mod", "S"]), label: "Save" },
+	{ key: formatShortcut(["Alt", "1 / 2 / 3"]), label: "Focus a panel" },
+	{ key: formatShortcut(["Alt", "["]), label: "Toggle layers" },
+	{ key: formatShortcut(["Alt", "]"]), label: "Toggle properties" },
+	{ key: formatShortcut(["Alt", "C"]), label: "Toggle annotation mode" },
+	{ key: formatShortcut(["Mod", "["]), label: "Back to project" },
+];
 
 function EmptyStateKbdMap() {
 	return (
@@ -802,6 +825,9 @@ export function Properties({ designId }: { designId?: string } = {}) {
 							<StagePreviewDarkModeToggle />
 							<DesignSystemPicker />
 							{designId ? <DesignLintSummary designId={designId} /> : null}
+							<Text variant="meta" render={<p />}>
+								Turn on Annotate to select layers on the stage.
+							</Text>
 							<EmptyStateKbdMap />
 						</div>
 					</ScrollArea>

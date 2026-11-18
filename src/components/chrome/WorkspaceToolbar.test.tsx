@@ -21,6 +21,7 @@ import {
 } from "../responsive-stage-zoom";
 import { getPanelToggleLabel, getPanelToggleTitle } from "./DesignHeader";
 import {
+	getResponsiveWidthCommitNotice,
 	getResponsiveWidthDraftError,
 	RESPONSIVE_DEVICE_WIDTH_PRESETS,
 	resolveResponsiveWidthDraftCommit,
@@ -185,7 +186,8 @@ describe("WorkspaceToolbar", () => {
 
 		// The open rail carries its own header and collapse toggle.
 		expect(html).not.toContain("Back to project");
-		expect(html).not.toContain("layers");
+		expect(html).not.toContain("Show layers");
+		expect(html).not.toContain("Hide layers");
 		expect(html).toMatch(
 			/aria-label="Hide properties"[^>]*aria-expanded="true"/,
 		);
@@ -294,6 +296,33 @@ describe("WorkspaceToolbar", () => {
 			{ label: "Laptop", width: 1024 },
 			{ label: "Desktop", width: 1440 },
 		]);
+	});
+
+	it("says when a committed width was changed from what was typed", () => {
+		expect(
+			getResponsiveWidthCommitNotice(
+				"9999",
+				resolveResponsiveWidthDraftCommit("9999", 768),
+			),
+		).toBe("Width set to 2400px, the maximum.");
+		expect(
+			getResponsiveWidthCommitNotice(
+				"12",
+				resolveResponsiveWidthDraftCommit("12", 768),
+			),
+		).toBe("Width set to 320px, the minimum.");
+		expect(
+			getResponsiveWidthCommitNotice(
+				"wide",
+				resolveResponsiveWidthDraftCommit("wide", 768),
+			),
+		).toBe("Enter a width from 320px to 2400px.");
+		expect(
+			getResponsiveWidthCommitNotice(
+				"800",
+				resolveResponsiveWidthDraftCommit("800", 768),
+			),
+		).toBeNull();
 	});
 
 	it("validates and commits responsive width drafts", () => {

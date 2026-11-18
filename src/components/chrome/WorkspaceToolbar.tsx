@@ -20,7 +20,6 @@ import {
 	toExportBoards,
 } from "../../export/client";
 import {
-	ANNOTATION_MODE_SHORTCUT_LABEL,
 	setAnnotationMode,
 	useAnnotationMode,
 } from "../../stores/annotation-mode-store";
@@ -32,6 +31,7 @@ import {
 } from "../../stores/design-store";
 import { useEditorPanelOpen } from "../../stores/editor-chrome-store";
 import { useExternallyChangedBoardIds } from "../../stores/external-change-store";
+import { formatShortcut } from "../../utils/editor-shortcuts";
 import { useIFrameView, useProjectConfig } from "../contexts";
 import {
 	cycleResponsiveStageBoard,
@@ -53,6 +53,7 @@ import {
 import { Button } from "../ui/button";
 import { Switch } from "../ui/switch";
 import { DesignHeaderContent, DesignPanelToggle } from "./DesignHeader";
+import { SaveIndicator } from "./DesignSave";
 
 export const RESPONSIVE_DEVICE_WIDTH_PRESETS = [
 	{ label: "Mobile S", width: 320, Icon: Smartphone },
@@ -81,6 +82,27 @@ export function getResponsiveWidthDraftError(draft: string) {
 		return `Width must be between ${RESPONSIVE_STAGE_MIN_WIDTH}px and ${RESPONSIVE_STAGE_MAX_WIDTH}px.`;
 	}
 
+	return null;
+}
+
+/**
+ * What the width field says after a commit changed the typed value, or null
+ * when the value went in as typed.
+ */
+export function getResponsiveWidthCommitNotice(
+	draft: string,
+	committed: { draft: string; width: number | null },
+) {
+	if (committed.width === null) {
+		return `Enter a width from ${RESPONSIVE_STAGE_MIN_WIDTH}px to ${RESPONSIVE_STAGE_MAX_WIDTH}px.`;
+	}
+	const typed = Number(draft.trim());
+	if (typed > RESPONSIVE_STAGE_MAX_WIDTH) {
+		return `Width set to ${committed.width}px, the maximum.`;
+	}
+	if (typed < RESPONSIVE_STAGE_MIN_WIDTH) {
+		return `Width set to ${committed.width}px, the minimum.`;
+	}
 	return null;
 }
 
@@ -153,9 +175,10 @@ function WorkspaceModeToggle() {
 
 function AnnotationModeSwitch() {
 	const enabled = useAnnotationMode();
+	const shortcut = formatShortcut(["Alt", "C"]);
 	const title = enabled
-		? `Leave annotation mode (${ANNOTATION_MODE_SHORTCUT_LABEL}) to click and type in the boards`
-		: `Annotation mode (${ANNOTATION_MODE_SHORTCUT_LABEL}): click the stage to select, show annotation pins`;
+		? `Use the boards as a live page (${shortcut})`
+		: `Select layers and show annotation pins (${shortcut})`;
 
 	return (
 		// biome-ignore lint/a11y/noLabelWithoutControl: the Switch renders the control.
@@ -212,7 +235,7 @@ function ResponsiveBoardControls() {
 				<ChevronLeft className="size-3.5" />
 			</Button>
 			<span
-				className="shrink-0 rounded bg-white px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
+				className="shrink-0 bg-white px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
 				aria-live="polite"
 			>
 				{total > 0 ? `Board ${index} / ${total}` : "No boards"}
@@ -283,10 +306,7 @@ function ResponsiveDevicePresetMenu() {
 									<span className="min-w-0 flex-1 truncate">{label}</span>
 									<span className="tabular-nums text-slate-500">{width}</span>
 									{isSelected ? (
-										<span
-											aria-hidden
-											className="size-1.5 rounded-full bg-cyan-700"
-										/>
+										<span aria-hidden className="size-1.5 bg-cyan-700" />
 									) : null}
 								</Menu.Item>
 							);
@@ -302,8 +322,10 @@ function ResponsiveWidthControls() {
 	const { responsiveWidth, breakpoints, controls } = useResponsiveStage();
 	const [widthDraft, setWidthDraft] = useState(String(responsiveWidth));
 	const [inputFocused, setInputFocused] = useState(false);
-	const draftError = getResponsiveWidthDraftError(widthDraft);
-	const errorId = "responsive-viewport-width-error";
+	// Set on blur or Enter, never per keystroke: typing 3 on the way to 320
+	// is not an error.
+	const [notice, setNotice] = useState<string | null>(null);
+	const noticeId = "responsive-viewport-width-notice";
 
 	useEffect(() => {
 		if (!inputFocused) {
@@ -317,6 +339,7 @@ function ResponsiveWidthControls() {
 			responsiveWidth,
 		);
 		setWidthDraft(result.draft);
+		setNotice(getResponsiveWidthCommitNotice(widthDraft, result));
 		if (result.width !== null) {
 			controls.setResponsiveWidth(result.width);
 		}
@@ -343,7 +366,10 @@ function ResponsiveWidthControls() {
 							controls.setResponsiveWidth(nextWidth);
 						}
 					}}
-					onFocus={() => setInputFocused(true)}
+					onFocus={() => {
+						setInputFocused(true);
+						setNotice(null);
+					}}
 					onBlur={() => {
 						setInputFocused(false);
 						commitDraft();
@@ -359,22 +385,20 @@ function ResponsiveWidthControls() {
 							event.currentTarget.blur();
 						}
 					}}
-					className={[
-						"h-full w-16 border-none bg-transparent px-2 text-right text-[11px] tabular-nums text-slate-700 focus-visible:outline-none",
-						draftError ? "text-red-700" : "",
-					].join(" ")}
+					className="h-full w-16 border-none bg-transparent px-2 text-right text-[11px] tabular-nums text-slate-700 focus-visible:outline-none"
 					aria-label="Viewport width in pixels"
-					aria-invalid={draftError ? true : undefined}
-					aria-describedby={draftError ? errorId : undefined}
-					title={draftError ?? "Viewport width in pixels"}
+					aria-describedby={notice ? noticeId : undefined}
+					title="Viewport width in pixels"
 				/>
 				<span className="pr-2 text-[10px] text-slate-400">px</span>
 			</label>
-			{draftError ? (
-				<span id={errorId} className="sr-only" aria-live="polite">
-					{draftError}
-				</span>
-			) : null}
+			<span
+				id={noticeId}
+				className="shrink-0 whitespace-nowrap text-[11px] text-slate-700 empty:hidden"
+				aria-live="polite"
+			>
+				{notice}
+			</span>
 			<ResponsiveDevicePresetMenu />
 			<fieldset
 				className="flex min-w-0 items-center gap-px overflow-x-auto border-0 p-0 min-inline-0"
@@ -629,6 +653,7 @@ export function WorkspaceToolbar() {
 				// be. It may shrink, never grow, so the controls keep their room.
 				<div className="flex w-[252px] min-w-0 shrink items-center gap-2 self-stretch border-r border-slate-200 pr-3 text-xs">
 					<DesignHeaderContent>
+						<SaveIndicator />
 						<DesignPanelToggle panel="rail" />
 					</DesignHeaderContent>
 				</div>

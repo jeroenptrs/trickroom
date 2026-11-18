@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { X } from "lucide-react";
 import { useState } from "react";
 import { Outlet, useNavigate } from "react-router";
+import { toast } from "sonner";
 import { configFileQueryKey } from "../queries/config-file";
 import {
 	deleteProjectLocation,
@@ -12,11 +13,10 @@ import {
 } from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
 import { MCPSetupDialog } from "./MCPSetupDialog";
-import { Alert } from "./ui/alert";
-import { ConfirmationDialog } from "./ui/alert-dialog";
 import { Button } from "./ui/button";
 import { Row } from "./ui/row";
 import { Text } from "./ui/text";
+import { Tooltip } from "./ui/tooltip";
 
 type RecentProjectRowProps = {
 	project: TrickroomProjectSummary;
@@ -49,16 +49,17 @@ function RecentProjectRow({
 					{project.projectRoot}
 				</Text>
 			</button>
-			<Button
-				variant="ghost"
-				className="shrink-0 items-center justify-center px-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-				disabled={disabled}
-				onClick={onRemove}
-				aria-label={`Remove ${project.name} from recent projects`}
-				title={`Remove ${project.name} from recent projects`}
-			>
-				<Trash2 className="size-3.5" aria-hidden="true" />
-			</Button>
+			<Tooltip content="Remove from recent projects">
+				<Button
+					variant="ghost"
+					className="shrink-0 items-center justify-center px-2"
+					disabled={disabled}
+					onClick={onRemove}
+					aria-label={`Remove ${project.name} from recent projects`}
+				>
+					<X className="size-3.5" aria-hidden="true" />
+				</Button>
+			</Tooltip>
 		</Row>
 	);
 }
@@ -68,44 +69,40 @@ export function HomeShell() {
 	const queryClient = useQueryClient();
 	const sessionQuery = useQuery(sessionQueryOptions());
 	const recentProjects = sessionQuery.data?.recentProjects ?? [];
-	const [projectPendingDeletion, setProjectPendingDeletion] =
-		useState<TrickroomProjectSummary | null>(null);
 	const [mcpSetupOpen, setMcpSetupOpen] = useState(false);
 
 	const openMutation = useMutation({
-		mutationFn: (targetPath: string) => openProject({ path: targetPath }),
+		mutationFn: (project: TrickroomProjectSummary) =>
+			openProject({ path: project.projectRoot }),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
 			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
 			navigate("/", { replace: true });
 		},
+		onError: (error, project) => {
+			toast.error(`Could not open ${project.name}`, {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		},
 	});
-	const deleteMutation = useMutation({
-		mutationFn: deleteProjectLocation,
-		onSuccess: async () => {
+	// Removing a recent project leaves its files on disk and can be undone by
+	// opening the folder again, so it needs no confirmation.
+	const removeMutation = useMutation({
+		mutationFn: (project: TrickroomProjectSummary) =>
+			deleteProjectLocation(project.locationId),
+		onSuccess: async (_response, project) => {
 			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
-			setProjectPendingDeletion(null);
+			toast.success(`${project.name} removed from recent projects`);
+		},
+		onError: (error, project) => {
+			toast.error(`Could not remove ${project.name}`, {
+				description: error instanceof Error ? error.message : undefined,
+			});
 		},
 	});
 
-	const deleteError = (deleteMutation.error as Error | null)?.message;
-	const isDeletingProject =
-		deleteMutation.isPending && projectPendingDeletion !== null;
-	const rowsDisabled = openMutation.isPending || isDeletingProject;
-
-	const handleDeleteDialogOpenChange = (open: boolean) => {
-		if (!open && !deleteMutation.isPending) {
-			setProjectPendingDeletion(null);
-		}
-	};
-
-	const handleDeleteProject = () => {
-		if (!projectPendingDeletion || deleteMutation.isPending) {
-			return;
-		}
-		deleteMutation.mutate(projectPendingDeletion.locationId);
-	};
+	const rowsDisabled = openMutation.isPending || removeMutation.isPending;
 
 	return (
 		<main className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-950">
@@ -128,7 +125,8 @@ export function HomeShell() {
 							>
 								Trickroom
 							</Text>
-						</button>						<div className="flex flex-1 flex-col gap-2 px-5 py-5">
+						</button>
+						<div className="flex flex-1 flex-col gap-2 px-5 py-5">
 							<Text variant="section-header">recent</Text>
 							{recentProjects.length === 0 ? (
 								<Text tone="faint" className="mt-1 text-xs">
@@ -141,16 +139,14 @@ export function HomeShell() {
 											key={`${project.projectId}-${project.locationId}`}
 											project={project}
 											disabled={rowsDisabled}
-											onOpen={() => openMutation.mutate(project.projectRoot)}
-											onRemove={() => {
-												deleteMutation.reset();
-												setProjectPendingDeletion(project);
-											}}
+											onOpen={() => openMutation.mutate(project)}
+											onRemove={() => removeMutation.mutate(project)}
 										/>
 									))}
 								</div>
 							)}
-						</div>						<div className="border-t border-slate-200 px-5 py-4">
+						</div>
+						<div className="border-t border-slate-200 px-5 py-4">
 							<Button
 								type="button"
 								variant="outlined"
@@ -167,30 +163,6 @@ export function HomeShell() {
 			</div>
 
 			<MCPSetupDialog open={mcpSetupOpen} onOpenChange={setMcpSetupOpen} />
-
-			<ConfirmationDialog
-				open={projectPendingDeletion !== null}
-				onOpenChange={handleDeleteDialogOpenChange}
-				title="Remove recent project"
-				description={
-					<>
-						This removes {projectPendingDeletion?.name ?? "this project"} from
-						the recent projects list. The project files stay on disk.
-					</>
-				}
-				icon={<Trash2 className="size-4" aria-hidden="true" />}
-				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
-				actionLabel={deleteMutation.isPending ? "Removing..." : "Remove"}
-				actionDisabled={deleteMutation.isPending}
-				tone="destructive"
-				onAction={handleDeleteProject}
-			>
-				{deleteError ? (
-					<Alert variant="panel" className="mx-4 mb-4">
-						Failed to remove project: {deleteError}
-					</Alert>
-				) : null}
-			</ConfirmationDialog>
 		</main>
 	);
 }

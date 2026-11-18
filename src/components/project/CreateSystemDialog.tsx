@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FilePlus2, Plus, SwatchBook, X } from "lucide-react";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { configFileQueryKey } from "../../queries/config-file";
 import {
 	type CreateSystemResponse,
@@ -18,7 +18,8 @@ import {
 	DialogPortal,
 	DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
+import { Field } from "../ui/field";
+import { FieldControl } from "../ui/input";
 import { InputGroup } from "../ui/input-group";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
@@ -37,6 +38,10 @@ export function CreateSystemDialog({
 	const [systemName, setSystemName] = useState("");
 	const [cssPath, setCssPath] = useState("");
 	const [setAsDefault, setSetAsDefault] = useState(true);
+	// Validated on blur and on submit, never per keystroke.
+	const [touched, setTouched] = useState({ name: false, css: false });
+	const nameRef = useRef<HTMLInputElement>(null);
+	const cssRef = useRef<HTMLInputElement>(null);
 
 	const mutation = useMutation({
 		mutationFn: createSystem,
@@ -59,18 +64,24 @@ export function CreateSystemDialog({
 		setSystemName("");
 		setCssPath("");
 		setSetAsDefault(true);
+		setTouched({ name: false, css: false });
 	}, [open, mutation.reset]);
 
 	const trimmedSystemName = systemName.trim();
 	const trimmedCssPath = cssPath.trim();
-	const canSubmit =
-		trimmedSystemName.length > 0 &&
-		trimmedCssPath.length > 0 &&
-		!mutation.isPending;
+	const nameError =
+		trimmedSystemName.length === 0 ? "Enter a system name." : undefined;
+	const cssError =
+		trimmedCssPath.length === 0 ? "Enter the CSS file." : undefined;
 
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!canSubmit) return;
+		if (mutation.isPending) return;
+		if (nameError || cssError) {
+			setTouched({ name: true, css: true });
+			(nameError ? nameRef : cssRef).current?.focus();
+			return;
+		}
 		mutation.mutate({
 			systemName: trimmedSystemName,
 			cssPath: trimmedCssPath,
@@ -108,43 +119,45 @@ export function CreateSystemDialog({
 								tokens from the CSS file you point it at.
 							</Text>
 							<div className="flex flex-col gap-5">
-								<div className="flex flex-col gap-2">
-									<label htmlFor={`${formId}-name`}>
-										<Text variant="label" tone="foreground">
-											System name
-										</Text>
-									</label>
-									<Input
-										id={`${formId}-name`}
+								<Field
+									label="System name"
+									className="gap-2"
+									error={touched.name ? nameError : undefined}
+								>
+									<FieldControl
+										ref={nameRef}
 										variant="outlined"
 										className="px-3 py-2"
 										placeholder="e.g. Acme Web"
 										value={systemName}
 										onChange={(event) => setSystemName(event.target.value)}
+										onBlur={() =>
+											setTouched((current) => ({ ...current, name: true }))
+										}
 										disabled={mutation.isPending}
 									/>
-								</div>
-								<div className="flex flex-col gap-2">
-									<label htmlFor={`${formId}-css`}>
-										<Text variant="label" tone="foreground">
-											Token source
-										</Text>
-									</label>
+								</Field>
+								<Field
+									label="Token source"
+									className="gap-2"
+									description="Trickroom indexes the @theme tokens declared in this file."
+									error={touched.css ? cssError : undefined}
+								>
 									<InputGroup icon={FilePlus2}>
-										<Input
-											id={`${formId}-css`}
+										<FieldControl
+											ref={cssRef}
 											variant="formEmbedded"
-											className="min-w-0 flex-1 truncate"
+											className="min-w-0 flex-1 truncate aria-invalid:inset-shadow-transparent"
 											placeholder="src/index.css"
 											value={cssPath}
 											onChange={(event) => setCssPath(event.target.value)}
+											onBlur={() =>
+												setTouched((current) => ({ ...current, css: true }))
+											}
 											disabled={mutation.isPending}
 										/>
 									</InputGroup>
-									<Text tone="muted" className="text-[11px] leading-relaxed">
-										Trickroom indexes the @theme tokens declared in this file.
-									</Text>
-								</div>
+								</Field>
 								<label
 									htmlFor={`${formId}-default`}
 									className="flex items-start gap-3"
@@ -184,7 +197,7 @@ export function CreateSystemDialog({
 							form={formId}
 							variant="filled"
 							className="flex items-center justify-center gap-2"
-							disabled={!canSubmit}
+							disabled={mutation.isPending}
 						>
 							<Plus className="size-3.5" aria-hidden="true" />
 							{mutation.isPending ? "Creating..." : "Create system"}

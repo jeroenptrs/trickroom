@@ -36,7 +36,6 @@ import {
 	addTemplateNode,
 	type ComponentTemplateSelection,
 	componentDraftStore,
-	deleteTemplateNode,
 	moveTemplateNode,
 	selectTemplateNode,
 	updateTemplateNodeName,
@@ -45,6 +44,8 @@ import {
 	useComponentDraftLayerTreeSnapshot,
 	useComponentDraftRootPath,
 	useComponentDraftSelectedPath,
+	useComponentDraftTemplateDirty,
+	useComponentDraftVariantsDirty,
 } from "../../stores/component-draft-store";
 import { useAnnotationRowMarker } from "../../stores/editor-annotations-store";
 import {
@@ -76,7 +77,13 @@ import {
 import { ScrollArea } from "../ui/scroll-area";
 import { Separator } from "../ui/separator";
 import { Text } from "../ui/text";
+import { Tooltip } from "../ui/tooltip";
+import { DisabledReason } from "./DisabledReason";
 import { DraftLayerContextMenu } from "./DraftLayerContextMenu";
+import {
+	DraftLayerDeleteDialog,
+	requestDraftLayerDelete,
+} from "./draft-layer-delete";
 
 const INDENT_PER_LEVEL = 12;
 
@@ -287,6 +294,66 @@ function resolveDraftLayerInsertionPlacement({
 		parentPath: rootPath,
 		index: intent === "before" ? 0 : (rootEntity.childPaths?.length ?? 0),
 	};
+}
+
+/** Why `resolveDraftLayerInsertionPlacement` found no place for `intent`. */
+function getDraftLayerInsertionBlockedReason({
+	intent,
+	rootPath,
+	selectedPath,
+	entitiesByPath,
+}: {
+	intent: PlacementIntent;
+	rootPath: string | null;
+	selectedPath: string | null;
+	entitiesByPath: Record<string, ComponentDraftEntity>;
+}): string {
+	const selectedEntity = selectedPath ? entitiesByPath[selectedPath] : null;
+	if (selectedEntity && intent === "inside") {
+		return "Select a container to add inside it.";
+	}
+	if (selectedEntity && selectedEntity.path === rootPath) {
+		return "Hold Alt to add inside the root layer.";
+	}
+	if (selectedEntity) {
+		return "Select a layer inside a container.";
+	}
+	return rootPath
+		? "The root layer can't hold other layers."
+		: "Select a layer to add next to it.";
+}
+
+/** An icon-only toolbar button: its name as a tooltip, or why it is disabled. */
+function LayerToolButton({
+	label,
+	disabledReason,
+	onClick,
+	children,
+}: {
+	label: string;
+	disabledReason: string | null;
+	onClick: () => void;
+	children: React.ReactNode;
+}) {
+	const button = (
+		<Button
+			type="button"
+			variant="block"
+			className="px-2 py-1"
+			disabled={disabledReason !== null}
+			onClick={onClick}
+			aria-label={label}
+		>
+			{children}
+		</Button>
+	);
+	return disabledReason ? (
+		<DisabledReason reason={`${label}: ${disabledReason}`}>
+			{button}
+		</DisabledReason>
+	) : (
+		<Tooltip content={label}>{button}</Tooltip>
+	);
 }
 
 function getDraftComponentPickerItems(
@@ -584,6 +651,8 @@ const DraftLayerRow = memo(function DraftLayerRow({
 					{hasChildren ? (
 						<UnstyledButton
 							className="shrink-0"
+							aria-label={`${open ? "Collapse" : "Expand"} ${layer.name}`}
+							aria-expanded={open}
 							onClick={() => onToggleOpen(path)}
 						>
 							<ChevronRight
@@ -602,7 +671,6 @@ const DraftLayerRow = memo(function DraftLayerRow({
 							className={`min-w-0 flex-1 text-start ${canDragLayer ? "active:cursor-grabbing" : ""}`}
 							onClick={selectLayer}
 							onDoubleClick={editLayer}
-							title={canDragLayer ? `Drag ${layer.name}` : layer.name}
 						>
 							<span
 								className={`truncate ${hasChildren ? " font-semibold" : ""}${layer.designOnly === "inherited" ? " opacity-60" : ""}`}
@@ -668,6 +736,12 @@ export function ComponentDraftLayers({
 }) {
 	const rootPath = useComponentDraftRootPath();
 	const draftComponentId = useComponentDraftComponentId();
+	const templateDirty = useComponentDraftTemplateDirty();
+	const variantsDirty = useComponentDraftVariantsDirty();
+	// The store still holds another component's draft: unsaved when dirty,
+	// otherwise about to be replaced by this component's.
+	const otherDraftUnsaved =
+		draftComponentId !== componentId && (templateDirty || variantsDirty);
 	const selectedPath = useComponentDraftSelectedPath();
 	const { entitiesByPath } = useComponentDraftLayerTreeSnapshot();
 	const isAltPressed = useKeyHold("Alt");
@@ -797,6 +871,14 @@ export function ComponentDraftLayers({
 		[keyboardPlacementIntent, resolveInsertionPlacement],
 	);
 	const canAddLayer = insertionPlacement !== null;
+	const addLayerBlockedReason = canAddLayer
+		? null
+		: getDraftLayerInsertionBlockedReason({
+				intent: keyboardPlacementIntent,
+				rootPath,
+				selectedPath,
+				entitiesByPath,
+			});
 	const canAddWithPickerIntent =
 		resolveInsertionPlacement(effectivePickerIntent) !== null;
 	const pickerPlacementLabel = rootPath ? effectivePickerIntent : "root";
@@ -1020,7 +1102,7 @@ export function ComponentDraftLayers({
 				(event.key === "Backspace" || event.key === "Delete") &&
 				selectedPath
 			) {
-				deleteTemplateNode(selectedPath);
+				requestDraftLayerDelete(selectedPath);
 				handled = true;
 			} else if (!event.repeat && isShortcutLetter(event, "f")) {
 				addDraftLayer(
@@ -1085,7 +1167,11 @@ export function ComponentDraftLayers({
 				>
 					Layers
 				</Text>
-				<p className="px-3 text-slate-500">Unsaved draft open.</p>
+				{otherDraftUnsaved ? (
+					<p className="px-3 text-slate-500">
+						Another component has unsaved changes.
+					</p>
+				) : null}
 			</Shell>
 		);
 	}
@@ -1100,66 +1186,58 @@ export function ComponentDraftLayers({
 				Layers
 			</Text>
 			<div className="flex flex-row items-center gap-1 px-2 pb-2">
-				<Button
-					type="button"
-					variant="block"
-					className="px-2 py-1"
-					disabled={!canAddLayer}
+				<LayerToolButton
+					label="Add container"
+					disabledReason={addLayerBlockedReason}
 					onClick={() =>
 						addDraftLayer(
 							{ library: "trickroom", component: "container" },
 							keyboardPlacementIntent,
 						)
 					}
-					title="Add container"
 				>
 					<Frame className="size-4 text-slate-950" aria-hidden="true" />
-				</Button>
-				<Button
-					type="button"
-					variant="block"
-					className="px-2 py-1"
-					disabled={!canAddLayer}
+				</LayerToolButton>
+				<LayerToolButton
+					label="Add text"
+					disabledReason={addLayerBlockedReason}
 					onClick={() =>
 						addDraftLayer(
 							{ library: "trickroom", component: "text" },
 							keyboardPlacementIntent,
 						)
 					}
-					title="Add text"
 				>
 					<Type className="size-4 text-slate-950" aria-hidden="true" />
-				</Button>
-				<Button
-					type="button"
-					variant="block"
-					className="px-2 py-1"
-					disabled={!canAddLayer}
+				</LayerToolButton>
+				<LayerToolButton
+					label="Add component"
+					disabledReason={addLayerBlockedReason}
 					onClick={() => {
 						setPickerIntent(keyboardPlacementIntent);
 						setPickerOpen((isOpen) => !isOpen);
 					}}
-					title="Add component"
 				>
 					<Plus className="size-4 text-slate-950" aria-hidden="true" />
-				</Button>
+				</LayerToolButton>
 				<Separator orientation="vertical" className="mx-1 h-5" />
-				<Button
-					type="button"
-					variant="block"
-					className="px-2 py-1"
-					disabled={!canAddLayer || !lastAddedSelection}
+				<LayerToolButton
+					label="Repeat last added item"
+					disabledReason={
+						addLayerBlockedReason ??
+						(lastAddedSelection ? null : "Add a layer first.")
+					}
 					onClick={() => repeatLastLayer(keyboardPlacementIntent)}
-					title="Repeat last added item"
 				>
 					<Repeat2 className="size-4 text-slate-950" aria-hidden="true" />
-				</Button>
+				</LayerToolButton>
 			</div>
 			{pickerOpen ? (
 				<div className="mx-1 mb-1 flex flex-col gap-1 border border-slate-200 bg-white p-1">
 					<Input
 						variant="block"
 						value={componentQuery}
+						aria-label="Search components"
 						placeholder="Search components"
 						onChange={(event) => setComponentQuery(event.target.value)}
 					/>
@@ -1251,6 +1329,7 @@ export function ComponentDraftLayers({
 					)}
 				</div>
 			</ScrollArea>
+			<DraftLayerDeleteDialog />
 		</Shell>
 	);
 }

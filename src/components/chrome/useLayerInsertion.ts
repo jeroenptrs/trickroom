@@ -43,6 +43,7 @@ import {
 import type { ShortcutPlacementIntent } from "../../utils/editor-shortcuts";
 import { canInsertIntoSystemComponentBoundary } from "../../utils/system-component-ownership";
 import { useProjectScope } from "../contexts";
+import { getDesignLayerName } from "../stage/stage-selection-sources";
 
 export type PlacementIntent = ShortcutPlacementIntent;
 
@@ -233,6 +234,29 @@ export function resolveLayerInsertionPlacement({
 	return placement;
 }
 
+/**
+ * Why nothing can be inserted for `intent` with this selection, for the
+ * disabled rows of the Add layer menu. Null when insertion is possible.
+ */
+export function getLayerInsertionBlockedReason(
+	intent: PlacementIntent,
+	selectedElement: DesignEntity | null | undefined,
+	canInsert: boolean,
+) {
+	if (canInsert) {
+		return null;
+	}
+	if (intent === "inside") {
+		if (!selectedElement) {
+			return "Select a container to insert inside it";
+		}
+		if (selectedElement.role !== "branch") {
+			return `${getDesignLayerName(selectedElement)} doesn't take layers of its own`;
+		}
+	}
+	return "Layers can't be added inside recipe or component structure";
+}
+
 export type LayerInsertion = ReturnType<typeof useLayerInsertion>;
 
 /**
@@ -403,9 +427,22 @@ export function useLayerInsertion() {
 		[addComponent, addRecipeInstance, lastAddedRef],
 	);
 
+	const blockedReason = useCallback(
+		(intent: PlacementIntent) =>
+			getLayerInsertionBlockedReason(
+				intent,
+				selectedElement,
+				resolveInsertionPlacement(intent) !== null,
+			),
+		[resolveInsertionPlacement, selectedElement],
+	);
+
 	return {
 		systemId,
 		systemComponents: systemComponentsQuery.data?.components ?? [],
+		/** The system's components failed to load (not "none published"). */
+		systemComponentsQuery,
+		blockedReason,
 		lastAddedRef,
 		resolveInsertionPlacement,
 		canInsert,

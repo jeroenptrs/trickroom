@@ -1,5 +1,6 @@
-import { Terminal, X } from "lucide-react";
+import { Settings2, Terminal, X } from "lucide-react";
 import { useState } from "react";
+import { openMcpToolSettings } from "./AppDialogHost";
 import { Button } from "./ui/button";
 import { CopyButton } from "./ui/copy-button";
 import {
@@ -10,6 +11,7 @@ import {
 	DialogPortal,
 	DialogTitle,
 } from "./ui/dialog";
+import { Kbd } from "./ui/kbd";
 import { Separator } from "./ui/separator";
 import { Text } from "./ui/text";
 
@@ -164,6 +166,25 @@ export function MCPSetupDialog({ open, onOpenChange }: MCPSetupDialogProps) {
 							</code>
 							.
 						</Text>
+					</div>
+
+					<Separator />
+
+					<div className="flex justify-end px-4 py-3">
+						<Button
+							type="button"
+							variant="ghost"
+							className="flex items-center gap-2"
+							aria-keyshortcuts="Meta+,"
+							onClick={() => {
+								onOpenChange(false);
+								openMcpToolSettings();
+							}}
+						>
+							<Settings2 className="size-3.5" aria-hidden="true" />
+							MCP tools
+							<Kbd aria-hidden="true">⌘,</Kbd>
+						</Button>
 					</div>
 				</DialogContent>
 			</DialogPortal>

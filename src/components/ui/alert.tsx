@@ -7,7 +7,7 @@ type AlertTone = "danger" | "warning" | "info";
 const alert = tv({
 	slots: {
 		root: "flex text-[11px]",
-		icon: "shrink-0",
+		icon: "size-3.5 shrink-0",
 	},
 	variants: {
 		variant: {

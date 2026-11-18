@@ -180,11 +180,10 @@ function SideCard({
 			) : (
 				<div className="flex flex-col gap-1 border-t border-dashed border-slate-200 px-4 py-6">
 					<Text className="text-sm font-medium text-slate-700">
-						Not available yet
+						No design results in this report
 					</Text>
 					<Text tone="faint" className="text-xs">
-						This report has no design-side results. They appear here once design
-						rules run as part of lint.
+						Run lint to include designs.
 					</Text>
 				</div>
 			)}

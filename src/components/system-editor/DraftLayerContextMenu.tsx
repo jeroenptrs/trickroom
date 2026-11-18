@@ -1,6 +1,6 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
-import { deleteTemplateNode } from "../../stores/component-draft-store";
 import { contextMenu } from "../ui/context-menu";
+import { requestDraftLayerDelete } from "./draft-layer-delete";
 
 const { trigger, positioner, popup, item } = contextMenu();
 
@@ -25,9 +25,9 @@ function DraftLayerContextMenu({
 					<ContextMenu.Popup className={popup()}>
 						<ContextMenu.Item
 							className={item()}
-							onClick={() => deleteTemplateNode(path)}
+							onClick={() => requestDraftLayerDelete(path)}
 						>
-							Delete
+							Delete layer
 						</ContextMenu.Item>
 					</ContextMenu.Popup>
 				</ContextMenu.Positioner>

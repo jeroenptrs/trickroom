@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCcw } from "lucide-react";
+import { toast } from "sonner";
 import {
 	configFileProjectQueryKey,
 	configFileQueryKey,
@@ -14,9 +14,8 @@ import {
 import type { TrickroomConfig } from "../../types";
 import { useProjectConfig, useProjectScope } from "../contexts";
 import { Alert } from "../ui/alert";
-import { Button } from "../ui/button";
 import { EditableTitle } from "../ui/editable-title";
-import { Kbd } from "../ui/kbd";
+import { Segmented, type SegmentedOption } from "../ui/segmented";
 import { Text } from "../ui/text";
 import { CommandMenu } from "./CommandMenu";
 import { MemoryNotesButton } from "./memory/MemoryNotesButton";
@@ -26,38 +25,16 @@ type ProjectMcpMode = "off" | "read-only" | "read-write";
 const getMcpMode = (config: TrickroomConfig): ProjectMcpMode =>
 	config.mcp?.enabled === true ? (config.mcp.mode ?? "read-write") : "off";
 
-const getNextMcpSettings = (mode: ProjectMcpMode): ProjectMcpSettings => {
-	if (mode === "off") {
-		return { enabled: true, mode: "read-only" };
-	}
+// One choice of three, so going from read-only to off never passes through
+// read-write on the way.
+const MCP_MODE_OPTIONS: readonly SegmentedOption<ProjectMcpMode>[] = [
+	{ value: "off", label: "Off" },
+	{ value: "read-only", label: "Read only" },
+	{ value: "read-write", label: "Read and write" },
+];
 
-	if (mode === "read-only") {
-		return { enabled: true, mode: "read-write" };
-	}
-
-	return { enabled: false };
-};
-
-const getMcpTone = (mode: ProjectMcpMode) => {
-	if (mode === "read-write") {
-		return {
-			text: "text-cyan-700",
-			dot: "bg-cyan-500",
-		};
-	}
-
-	if (mode === "read-only") {
-		return {
-			text: "text-orange-700",
-			dot: "bg-orange-500",
-		};
-	}
-
-	return {
-		text: "text-slate-500",
-		dot: "bg-slate-300",
-	};
-};
+const getMcpSettings = (mode: ProjectMcpMode): ProjectMcpSettings =>
+	mode === "off" ? { enabled: false } : { enabled: true, mode };
 
 function ProjectTitle({
 	name,
@@ -121,7 +98,6 @@ export function ProjectHeader() {
 	const activeProject = sessionQuery.data?.activeProject;
 	const projectName = activeProject?.name ?? config.name;
 	const mcpMode = getMcpMode(config);
-	const mcpTone = getMcpTone(mcpMode);
 	const updateMcpMutation = useMutation({
 		mutationFn: updateProjectMcpSettings,
 		onSuccess: (nextConfig) => {
@@ -131,7 +107,28 @@ export function ProjectHeader() {
 			);
 			queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 		},
+		onError: (error) => {
+			toast.error("Could not change MCP access", {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		},
 	});
+	// While a change saves, show the mode it is moving to.
+	const pendingMcpSettings = updateMcpMutation.isPending
+		? updateMcpMutation.variables
+		: undefined;
+	const displayedMcpMode: ProjectMcpMode = pendingMcpSettings
+		? pendingMcpSettings.enabled
+			? pendingMcpSettings.mode
+			: "off"
+		: mcpMode;
+	const changeMcpMode = (nextMode: ProjectMcpMode | null) => {
+		// Clicking the active option keeps it; there is no unset state.
+		if (!nextMode || nextMode === mcpMode || updateMcpMutation.isPending) {
+			return;
+		}
+		updateMcpMutation.mutate(getMcpSettings(nextMode));
+	};
 
 	return (
 		<header className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3">
@@ -145,13 +142,12 @@ export function ProjectHeader() {
 					name={projectName}
 					locationId={activeProject?.locationId ?? null}
 				/>
-				<CommandMenu />
 				<Text tone="faint" className="ml-2 truncate font-mono text-[11px]">
 					{activeProject?.projectRoot ?? "Project path unavailable"}
 				</Text>
 			</div>
 			<div className="flex-1" />
-			<div className="flex items-center gap-3">
+			<div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
 				<MemoryNotesButton
 					scope={{ kind: "project" }}
 					projectScope={projectScope}
@@ -159,28 +155,21 @@ export function ProjectHeader() {
 					subtitle={activeProject?.projectRoot}
 					variant="outlined"
 				/>
-				<div className="flex items-center gap-1.5">
-					<Text tone="faint" className="font-mono text-[10px]">
-						switch
-					</Text>
-					<Kbd>⌘P</Kbd>
-				</div>
-				<Button
-					type="button"
-					variant="outlined"
-					className={`flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider ${mcpTone.text}`}
-					disabled={updateMcpMutation.isPending}
-					aria-label={`Set MCP mode after ${mcpMode}`}
-					onClick={() => updateMcpMutation.mutate(getNextMcpSettings(mcpMode))}
+				<CommandMenu />
+				<div
+					className="flex items-center gap-2"
+					aria-busy={updateMcpMutation.isPending}
 				>
-					<span className={`size-1.5 rounded-full ${mcpTone.dot}`} />
-					MCP{" · "}
-					{mcpMode}
-					<RefreshCcw
-						className={`size-3 ${mcpTone.text} ${updateMcpMutation.isPending ? "animate-spin" : ""}`}
-						aria-hidden="true"
+					<Text variant="group-label" aria-hidden="true">
+						MCP
+					</Text>
+					<Segmented
+						ariaLabel="MCP access for agents"
+						options={MCP_MODE_OPTIONS}
+						value={displayedMcpMode}
+						onChange={changeMcpMode}
 					/>
-				</Button>
+				</div>
 			</div>
 		</header>
 	);

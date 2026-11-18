@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { TailwindTokenDomainDiffs } from "../utils/tailwind-token-domains";
 import {
 	getSystemAttentionSummary,
+	getSystemAttentionToastCopy,
 	getSystemAttentionToastIds,
 } from "./system-attention-toasts";
 
@@ -131,5 +132,29 @@ describe("system attention toast helpers", () => {
 		expect(summary.reviewNames).toEqual(["Marketing"]);
 		expect(summary.issueKey).toBe("Core");
 		expect(summary.reviewKey).toBe("Marketing");
+	});
+});
+
+describe("system attention toast copy", () => {
+	it("names a single system in the title", () => {
+		expect(getSystemAttentionToastCopy("issues", ["Site"])).toEqual({
+			title: "Site could not sync tokens",
+		});
+		expect(getSystemAttentionToastCopy("review", ["Site"])).toEqual({
+			title: "Site has token changes to review",
+		});
+	});
+
+	it("counts several systems and lists up to three names", () => {
+		expect(getSystemAttentionToastCopy("review", ["A", "B"])).toEqual({
+			title: "2 systems have token changes to review",
+			description: "A, B",
+		});
+		expect(
+			getSystemAttentionToastCopy("issues", ["A", "B", "C", "D", "E"]),
+		).toEqual({
+			title: "5 systems could not sync tokens",
+			description: "A, B, C and 2 more",
+		});
 	});
 });

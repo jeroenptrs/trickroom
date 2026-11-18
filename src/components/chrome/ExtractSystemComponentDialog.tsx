@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Component, Pencil, Plus, X } from "lucide-react";
+import { Component, Pencil, X } from "lucide-react";
 import { type FormEvent, useEffect, useId, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -37,7 +37,9 @@ import {
 	DialogPortal,
 	DialogTitle,
 } from "../ui/dialog";
+import { Field } from "../ui/field";
 import { Input } from "../ui/input";
+import { Select } from "../ui/select";
 import { Separator } from "../ui/separator";
 
 type ExtractSystemComponentDialogProps = {
@@ -100,6 +102,31 @@ export function canSubmitExtractSystemComponentDialog({
 		isSystemComponentSlug(slug.trim()) &&
 		!isPending
 	);
+}
+
+export type ExtractSystemComponentFieldErrors = {
+	system?: string;
+	name?: string;
+	slug?: string;
+};
+
+/** Field errors, shown once a field blurs or the form is submitted. */
+export function getExtractSystemComponentFieldErrors({
+	hasTargetSystem,
+	name,
+	slug,
+}: {
+	hasTargetSystem: boolean;
+	name: string;
+	slug: string;
+}): ExtractSystemComponentFieldErrors {
+	return {
+		...(hasTargetSystem ? {} : { system: "Choose a system." }),
+		...(name.trim() ? {} : { name: "Enter a name." }),
+		...(isSystemComponentSlug(slug.trim())
+			? {}
+			: { slug: "Use lowercase letters, numbers, and hyphens." }),
+	};
 }
 
 function getSelectionError(elementId: string) {
@@ -269,6 +296,11 @@ export function ExtractSystemComponentDialog({
 	const [description, setDescription] = useState("");
 	const [group, setGroup] = useState("");
 	const [replaceSelection, setReplaceSelection] = useState(true);
+	// A slug typed by hand stops following the name.
+	const [slugEdited, setSlugEdited] = useState(false);
+	const [touched, setTouched] = useState<
+		Partial<Record<keyof ExtractSystemComponentFieldErrors, boolean>>
+	>({});
 	const selectionError = open ? getSelectionError(elementId) : null;
 	const componentsQuery = useQuery({
 		...systemComponentsQueryOptions(targetSystemId, projectScope),
@@ -329,6 +361,8 @@ export function ExtractSystemComponentDialog({
 		setDescription("");
 		setGroup("");
 		setReplaceSelection(true);
+		setSlugEdited(false);
+		setTouched({});
 	}, [currentSystemId, defaults.name, defaults.slug, mutation.reset, open]);
 
 	const canSubmit = canSubmitExtractSystemComponentDialog({
@@ -345,13 +379,34 @@ export function ExtractSystemComponentDialog({
 		(componentsQuery.error as Error | null)?.message ??
 		(mutation.error as Error | null)?.message;
 
+	const fieldErrors = getExtractSystemComponentFieldErrors({
+		hasTargetSystem,
+		name,
+		slug,
+	});
+	const shownErrors: ExtractSystemComponentFieldErrors = {
+		system: touched.system ? fieldErrors.system : undefined,
+		name: touched.name ? fieldErrors.name : undefined,
+		slug: touched.slug ? fieldErrors.slug : undefined,
+	};
+	const touch = (field: keyof ExtractSystemComponentFieldErrors) =>
+		setTouched((current) =>
+			current[field] ? current : { ...current, [field]: true },
+		);
+	// The system's component list carries the revision to write against.
+	const loadingRevision =
+		hasTargetSystem && !revision && componentsQuery.isFetching;
+
 	const handleNameChange = (value: string) => {
 		setName(value);
-		setSlug(systemComponentSlugFromName(value));
+		if (!slugEdited) {
+			setSlug(systemComponentSlugFromName(value));
+		}
 	};
 
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
+		setTouched({ system: true, name: true, slug: true });
 		if (!canSubmit) {
 			return;
 		}
@@ -382,18 +437,24 @@ export function ExtractSystemComponentDialog({
 					<form id={formId} onSubmit={handleSubmit}>
 						<div className="flex flex-col gap-5 px-5 py-5">
 							<div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-								<div className="flex flex-col gap-2 sm:col-span-2">
+								<div className="flex flex-col gap-1 sm:col-span-2">
 									<label
 										htmlFor={`${formId}-system`}
 										className="text-xs font-semibold text-slate-950"
 									>
 										Target system
 									</label>
-									<select
+									<Select
 										id={`${formId}-system`}
-										className="h-8 bg-white px-2 text-xs inset-shadow-[0_0_0_1px] inset-shadow-slate-200 outline-none focus:inset-shadow-cyan-500 disabled:opacity-50"
+										variant="outlined"
+										className="h-8"
 										value={targetSystemId}
 										onChange={(event) => setTargetSystemId(event.target.value)}
+										onBlur={() => touch("system")}
+										aria-invalid={shownErrors.system ? true : undefined}
+										aria-describedby={
+											shownErrors.system ? `${formId}-system-error` : undefined
+										}
 										disabled={mutation.isPending || systemsQuery.isPending}
 									>
 										<option value="">Choose system</option>
@@ -402,40 +463,41 @@ export function ExtractSystemComponentDialog({
 												{system.systemName}
 											</option>
 										))}
-									</select>
+									</Select>
+									{shownErrors.system ? (
+										<Alert
+											id={`${formId}-system-error`}
+											variant="inline"
+											tone="danger"
+											className="pt-0.5 text-xs"
+										>
+											{shownErrors.system}
+										</Alert>
+									) : null}
 								</div>
-								<div className="flex flex-col gap-2">
-									<label
-										htmlFor={`${formId}-name`}
-										className="text-xs font-semibold text-slate-950"
-									>
-										Component name
-									</label>
+								<Field label="Component name" error={shownErrors.name}>
 									<Input
-										id={`${formId}-name`}
 										variant="outlined"
 										className="px-3 py-2"
 										value={name}
 										onChange={(event) => handleNameChange(event.target.value)}
+										onBlur={() => touch("name")}
 										disabled={mutation.isPending}
 									/>
-								</div>
-								<div className="flex flex-col gap-2">
-									<label
-										htmlFor={`${formId}-slug`}
-										className="text-xs font-semibold text-slate-950"
-									>
-										Slug
-									</label>
+								</Field>
+								<Field label="Slug" error={shownErrors.slug}>
 									<Input
-										id={`${formId}-slug`}
 										variant="outlined"
 										className="px-3 py-2 font-mono"
 										value={slug}
-										onChange={(event) => setSlug(event.target.value)}
+										onChange={(event) => {
+											setSlugEdited(true);
+											setSlug(event.target.value);
+										}}
+										onBlur={() => touch("slug")}
 										disabled={mutation.isPending}
 									/>
-								</div>
+								</Field>
 								<div className="flex flex-col gap-2">
 									<label
 										htmlFor={`${formId}-group`}
@@ -510,10 +572,9 @@ export function ExtractSystemComponentDialog({
 							form={formId}
 							variant="filled"
 							className="flex items-center justify-center gap-2"
-							disabled={!canSubmit}
+							disabled={mutation.isPending || loadingRevision}
 						>
-							<Plus className="size-3.5" aria-hidden="true" />
-							{mutation.isPending ? "Extracting..." : "Extract component"}
+							{mutation.isPending ? "Extracting…" : "Extract component"}
 						</Button>
 					</div>
 				</DialogContent>
