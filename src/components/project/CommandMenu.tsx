@@ -8,6 +8,7 @@ import {
 	FolderPlus,
 	Folders,
 	GitBranch,
+	LogOut,
 	Plus,
 	Settings2,
 	X,
@@ -20,6 +21,7 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import { authSessionQueryOptions, signOut } from "../../queries/auth";
 import {
 	closeProject,
 	openProject,
@@ -114,6 +116,22 @@ export function CommandMenu() {
 			});
 		},
 	});
+
+	// Only a browser that paired with a code has a session of its own to end.
+	const authQuery = useQuery(authSessionQueryOptions());
+	const signOutMutation = useMutation({
+		mutationFn: signOut,
+		onSuccess: () => window.location.assign("/pair"),
+		onError: (error) => {
+			toast.error("Could not sign out", {
+				description: error instanceof Error ? error.message : undefined,
+			});
+		},
+	});
+	const handleSignOut = () => {
+		setOpen(false);
+		signOutMutation.mutate();
+	};
 
 	const isMutating = openMutation.isPending || closeMutation.isPending;
 
@@ -462,6 +480,21 @@ export function CommandMenu() {
 												</span>
 											</CommandItem>
 										</CommandGroup>
+										{authQuery.data?.kind === "session" ? (
+											<CommandGroup>
+												<CommandGroupLabel>Session</CommandGroupLabel>
+
+												<CommandItem value="Sign out" onSelect={handleSignOut}>
+													<LogOut
+														className="size-4 shrink-0 text-slate-500"
+														aria-hidden="true"
+													/>
+													<span data-item-name="" className="flex-1 text-sm">
+														Sign out
+													</span>
+												</CommandItem>
+											</CommandGroup>
+										) : null}
 									</>
 								) : (
 									<>

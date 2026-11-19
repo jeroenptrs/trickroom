@@ -21,6 +21,7 @@ pnpm install
 | `pnpm build:mcp` | Build the stdio MCP output. |
 | `pnpm build:migrate` | Build `dist/migrate.js` for `trickroom migrate`. |
 | `pnpm build:feedback` | Build `dist/feedback.js` for `trickroom feedback`. |
+| `pnpm build:auth` | Build `dist/auth.js` for `trickroom pair` and `trickroom sessions` (entry `src/cli/auth.ts`, config `vite.auth.config.ts`). |
 | `pnpm build:codegen` | Build `dist/codegen.js` for `trickroom codegen` (entry `src/cli/codegen.ts`, config `vite.codegen.config.ts`). |
 | `pnpm build:lint` | Build `dist/lint.js` for `trickroom lint` (entry `src/cli/lint.ts`, config `vite.lint.config.ts`). |
 | `pnpm build:tailwind-worker` | Build `dist/tailwind-canonicalize-worker.js`, the worker thread the server, MCP and lint bundles start for Tailwind canonicalization (entry `src/utils/tailwind-canonicalize-worker.ts`, config `vite.tailwind-worker.config.ts`). From source (dev server, tests) the `.ts` worker runs under Node's type stripping. |
@@ -65,6 +66,7 @@ The default URL is `http://localhost:18100/`. Runtime variables are:
 | `TRICKROOM_PUBLIC_URL` | Base URL used in printed, emitted, and opened URLs, e.g. behind a reverse proxy; see [Public host](#public-host). |
 | `TRICKROOM_PUBLIC_HOST` | Host used in printed, emitted, and opened URLs; see [Public host](#public-host). |
 | `TRICKROOM_SESSION_TOKEN` | Enables HTTP session authentication; required on non-loopback hosts. |
+| `TRICKROOM_SESSION_DAYS` | Days a paired browser stays signed in after its last use, for `trickroom pair` without `--days`. Default 30. |
 | `TRICKROOM_PROJECT_DIR` | Initial project root. |
 | `TRICKROOM_HOME` | Per-user app-state directory. |
 | `TRICKROOM_MCP_CALL_LOG` | `1` or `0`: turn the MCP call log on or off for one MCP session, over `mcp.callLog` in settings. |
@@ -124,7 +126,23 @@ Restart=on-failure
 WantedBy=default.target
 ```
 
-The ready record on stdout (`journalctl --user -u trickroom`) has the bootstrap URL with the token. Open it once per browser.
+To sign a browser in, open the service's address. It shows the pairing page. Then run this on the machine and enter the code it prints:
+
+```sh
+trickroom pair
+```
+
+The code works once, for 2 minutes. The browser then stays signed in for 30 days after its last use; `trickroom pair --days 7` asks for a shorter session. When the public URL is configured, the command also prints a link that pairs without typing.
+
+```sh
+trickroom sessions                 # the browsers signed in, with their ids
+trickroom sessions revoke <id>     # sign one out
+trickroom sessions revoke --all    # sign every browser out
+```
+
+A revoked browser is refused within 5 seconds. **Sign out** in the command menu ends the session of the browser it is clicked in.
+
+The token in `server-token` is for automation. The ready record on stdout (`journalctl --user -u trickroom`) has a bootstrap URL with it, which still signs a browser in, with a cookie that does not expire. Prefer pairing for browsers.
 
 Each browser tab holds its own checkout under `/p/<locationId>/`, so one server shows several projects and branches at once. `/` is the home screen.
 

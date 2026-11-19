@@ -65,6 +65,7 @@ Project screen:
 - Switch back to project selection.
 - Open a project on a branch: the home screen lists each project once, with a row per checkout (a clone or a git worktree) named after its branch.
 - Switch project or branch from an open project: the branch button in the header, or `Cmd` + `P`. Worktrees created or removed on the machine show up in both lists without a reload.
+- Sign a browser in to a Trickroom that asks for it: run `trickroom pair` on the machine and enter the code on the pairing page. **Sign out** is in the command menu (`Cmd` + `K`).
 - Each browser tab keeps its own project and branch, shown in the address as `/p/<location>/`. Open a second tab to compare two branches side by side; a switch in one tab does not move the others.
 - Create a new design file.
 - Open existing design files.

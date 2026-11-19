@@ -4,8 +4,9 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { getCookie, setCookie } from "hono/cookie";
+import { getCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
+import { createSessionAuthenticator } from "./app-state/auth-sessions";
 import { resolveTrickroomHome } from "./app-state/home";
 import {
 	clearActiveProjectLocation,
@@ -43,6 +44,14 @@ import {
 	repairInvalidKnownRecipeInstances,
 } from "./recipes/repair";
 import { registerAnnotationRoutes } from "./routes/annotations";
+import {
+	authRequiredHeaderName,
+	createAuthRoutes,
+	pairApiPath,
+	pairPagePath,
+	type RequestAuth,
+	setSessionCookie,
+} from "./routes/auth";
 import { createEditorChannelRoutes } from "./routes/editor-channel";
 import { exportRoutes } from "./routes/export";
 import { registerProjectAndDesignMemoryRoutes } from "./routes/memory";
@@ -53,7 +62,6 @@ import {
 import { systemsRoutes } from "./routes/systems";
 import { tailwindRoutes } from "./routes/tailwind";
 import {
-	isSecureRequest,
 	trickroomSessionCookieName,
 	trickroomSessionHeaderName,
 } from "./server-auth";
@@ -623,6 +631,8 @@ type TrickroomAppEnv = {
 		projectRoot: string;
 		configPath: string;
 		config: TrickroomConfig;
+		/** How the request authenticated; set by the auth middleware. */
+		auth: RequestAuth;
 	};
 };
 
@@ -688,8 +698,11 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		return jsonError("Internal server error", 500);
 	});
 
+	const sessionAuthenticator = createSessionAuthenticator(trickroomHome);
+
 	app.use("*", async (c, next) => {
 		if (!sessionToken) {
+			c.set("auth", { kind: "none" });
 			await next();
 			return;
 		}
@@ -701,24 +714,63 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		) {
 			const cleanUrl = new URL(c.req.url);
 			cleanUrl.searchParams.delete("token");
-			setCookie(c, trickroomSessionCookieName, sessionToken, {
-				httpOnly: true,
-				path: "/",
-				sameSite: "Strict",
-				secure: isSecureRequest(cleanUrl, c.req.header("x-forwarded-proto")),
-			});
+			setSessionCookie(c, sessionToken);
 			return c.redirect(`${cleanUrl.pathname}${cleanUrl.search}`);
 		}
 
-		const requestToken =
-			getCookie(c, trickroomSessionCookieName) ??
-			c.req.header(trickroomSessionHeaderName);
-		if (requestToken !== sessionToken) {
-			return jsonError("Forbidden", 403);
+		// The token itself (automation, the bootstrap link) or the cookie of a
+		// browser that paired with a code.
+		const cookie = getCookie(c, trickroomSessionCookieName);
+		const credential = cookie ?? c.req.header(trickroomSessionHeaderName);
+		if (credential === sessionToken) {
+			c.set("auth", { kind: "token" });
+			await next();
+			return;
+		}
+		const authenticated = credential
+			? await sessionAuthenticator.authenticate(credential)
+			: null;
+		if (authenticated) {
+			if (authenticated.renewed && cookie) {
+				setSessionCookie(c, cookie, authenticated.session.expiresAt);
+			}
+			c.set("auth", { kind: "session", session: authenticated.session });
+			await next();
+			return;
 		}
 
-		await next();
+		c.set("auth", { kind: "none" });
+		if (c.req.path === pairPagePath || c.req.path === pairApiPath) {
+			await next();
+			return;
+		}
+		// A page load goes to the pairing page and comes back afterwards.
+		const isApiPath = c.req.path === "/api" || c.req.path.startsWith("/api/");
+		if (
+			c.req.method === "GET" &&
+			!isApiPath &&
+			c.req.header("accept")?.includes("text/html")
+		) {
+			const requested = new URL(c.req.url);
+			return c.redirect(
+				`${pairPagePath}?next=${encodeURIComponent(`${requested.pathname}${requested.search}`)}`,
+			);
+		}
+		const forbidden = jsonError("Forbidden", 403);
+		forbidden.headers.set(authRequiredHeaderName, "required");
+		return forbidden;
 	});
+
+	app.route(
+		"/",
+		createAuthRoutes({
+			trickroomHome,
+			authenticator: sessionAuthenticator,
+			authRequired: Boolean(sessionToken),
+			getAuth: (c) =>
+				(c.get("auth") as RequestAuth | undefined) ?? { kind: "none" },
+		}),
+	);
 
 	app.use("/api/trickroom/*", (c, next) => {
 		const locationId =
