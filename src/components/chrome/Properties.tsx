@@ -63,6 +63,7 @@ import type {
 	PublishedSystemComponentVersion,
 	SystemComponentOverrideCapability,
 } from "../../utils/system-components";
+import { withTabLocation } from "../../utils/tab-location";
 import { DesignAnnotationsPanel } from "../annotations/DesignAnnotationsPanel";
 import { useProjectScope } from "../contexts";
 import {
@@ -442,7 +443,9 @@ function AssetPicker({
 			</label>
 			{systemId && value ? (
 				<img
-					src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(value)}/file`}
+					src={withTabLocation(
+						`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(value)}/file`,
+					)}
 					alt={selectedAsset?.name ?? value}
 					className="h-16 w-full bg-slate-100 object-contain object-left"
 				/>
@@ -511,7 +514,9 @@ function IconPicker({
 			{systemId && value ? (
 				<div className="flex items-center gap-2">
 					<img
-						src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(value)}/svg`}
+						src={withTabLocation(
+							`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(value)}/svg`,
+						)}
 						alt={selectedIcon?.name ?? value}
 						className="size-5 shrink-0 object-contain"
 					/>

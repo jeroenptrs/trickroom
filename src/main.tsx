@@ -4,13 +4,14 @@ import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
 import App from "./App";
 import "./index.css";
+import { getTabPath } from "./utils/tab-location";
 
 const queryClient = new QueryClient();
 
 // Capture pages are what design_screenshot and design_export photograph.
 // The screenshot service opens them directly, so no toast may paint into
 // the image (for example the system sync attention toasts).
-const isCaptureRoute = window.location.pathname.startsWith("/capture/");
+const isCaptureRoute = getTabPath().startsWith("/capture/");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 	<React.StrictMode>

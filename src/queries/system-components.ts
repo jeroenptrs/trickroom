@@ -11,6 +11,7 @@ import type {
 	SystemComponentVariantSchema,
 } from "../utils/system-components";
 import type { SystemComponentManifestDiagnostic } from "../utils/system-components-validation.types";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemComponentsListResponse = {
@@ -105,12 +106,12 @@ const systemComponentsBasePath = (systemId: string) =>
 	`/api/trickroom/systems/${encodeURIComponent(systemId)}/components`;
 
 const fetchSystemComponents = async (systemId: string) => {
-	const response = await fetch(systemComponentsBasePath(systemId));
+	const response = await apiFetch(systemComponentsBasePath(systemId));
 	return readJsonOrThrow<SystemComponentsListResponse>(response);
 };
 
 const fetchSystemComponent = async (systemId: string, componentId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}`,
 	);
 	return readJsonOrThrow<SystemComponentDescribeResponse>(response);
@@ -121,7 +122,7 @@ export const expandSystemComponent = async (
 	componentId: string,
 	version: string,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/versions/${encodeURIComponent(version)}/expand`,
 	);
 	return readJsonOrThrow<SystemComponentExpansionResponse>(response);
@@ -131,7 +132,7 @@ export const createSystemComponentDraft = async (
 	systemId: string,
 	params: CreateSystemComponentDraftParams,
 ) => {
-	const response = await fetch(systemComponentsBasePath(systemId), {
+	const response = await apiFetch(systemComponentsBasePath(systemId), {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(params),
@@ -144,7 +145,7 @@ export const updateSystemComponentMetadata = async (
 	componentId: string,
 	params: UpdateSystemComponentMetadataParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/metadata`,
 		{
 			method: "POST",
@@ -160,7 +161,7 @@ export const updateSystemComponentDraft = async (
 	componentId: string,
 	params: UpdateSystemComponentDraftParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/draft`,
 		{
 			method: "POST",
@@ -176,7 +177,7 @@ export const updateSystemComponentVariants = async (
 	componentId: string,
 	params: UpdateSystemComponentVariantsParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/variants`,
 		{
 			method: "POST",
@@ -192,7 +193,7 @@ export const publishSystemComponent = async (
 	componentId: string,
 	params: PublishSystemComponentParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/publish`,
 		{
 			method: "POST",
@@ -208,7 +209,7 @@ export const deleteSystemComponent = async (
 	componentId: string,
 	params: DeleteSystemComponentParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}`,
 		{
 			method: "DELETE",
@@ -224,7 +225,7 @@ export const copyPublishedSystemComponentToDraft = async (
 	componentId: string,
 	params: CopyPublishedSystemComponentToDraftParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${systemComponentsBasePath(systemId)}/${encodeURIComponent(componentId)}/draft-from-published`,
 		{
 			method: "POST",

@@ -6,6 +6,7 @@ import {
 	useContext,
 } from "react";
 import { assetIdProp } from "../../utils/resource-props";
+import { withTabLocation } from "../../utils/tab-location";
 import { useDesignSystemRenderContext } from "../trickroom/render-context";
 
 type AvatarRootProps = ComponentPropsWithoutRef<typeof Avatar.Root>;
@@ -49,7 +50,9 @@ export const AvatarImage = forwardRef<HTMLImageElement, AvatarImageProps>(
 		const normalizedAssetId = assetId?.trim();
 		const src =
 			systemName && normalizedAssetId
-				? `/api/trickroom/systems/${encodeURIComponent(systemName)}/assets/${encodeURIComponent(normalizedAssetId)}/file`
+				? withTabLocation(
+						`/api/trickroom/systems/${encodeURIComponent(systemName)}/assets/${encodeURIComponent(normalizedAssetId)}/file`,
+					)
 				: undefined;
 
 		if (isInsideAvatarRoot) {

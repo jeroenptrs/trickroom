@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { DesignFileLintResponse } from "../lint/design-lint";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 /**
@@ -24,7 +25,7 @@ export const designLintQueryOptions = (
 			projectScope,
 		),
 		queryFn: async () => {
-			const response = await fetch(
+			const response = await apiFetch(
 				`/api/trickroom/design/lint?id=${encodeURIComponent(designId)}`,
 			);
 			return readJsonOrThrow<DesignFileLintResponse>(response);

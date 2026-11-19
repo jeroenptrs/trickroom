@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type TailwindClassCatalogResponse = {
@@ -32,7 +33,7 @@ export const tailwindClassCatalogQueryOptions = (
 		),
 		queryFn: async () => {
 			const query = systemId ? `?systemId=${encodeURIComponent(systemId)}` : "";
-			const response = await fetch(
+			const response = await apiFetch(
 				`/api/trickroom/tailwind/class-catalog${query}`,
 			);
 			return readJsonOrThrow<TailwindClassCatalogResponse>(response);
@@ -52,7 +53,7 @@ export const tailwindClassInspectQueryOptions = (
 			projectScope,
 		),
 		queryFn: async () => {
-			const response = await fetch("/api/trickroom/tailwind/class-inspect", {
+			const response = await apiFetch("/api/trickroom/tailwind/class-inspect", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({

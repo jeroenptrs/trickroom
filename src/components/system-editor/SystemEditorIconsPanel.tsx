@@ -20,6 +20,7 @@ import {
 	systemIconsQueryOptions,
 } from "../../queries/system-icons";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
+import { withTabLocation } from "../../utils/tab-location";
 import { pluralize } from "../project/project-view-utils";
 import { Alert } from "../ui/alert";
 import { ConfirmationDialog } from "../ui/alert-dialog";
@@ -60,7 +61,9 @@ function SystemEditorIconPreview({
 			alt=""
 			className="size-6 object-contain text-slate-900"
 			loading="lazy"
-			src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`}
+			src={withTabLocation(
+				`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`,
+			)}
 			onError={() => setFailed(true)}
 		/>
 	);

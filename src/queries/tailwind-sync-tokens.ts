@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { HttpError, readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import type {
 	TailwindColorTokenBaselineDiff,
 	TailwindTokensForPresentation,
@@ -96,7 +97,7 @@ export type SaveAndConfirmTailwindTokensRequest = {
 export const syncTailwindTokens = async (
 	request: TailwindSyncTokensRequest,
 ) => {
-	const response = await fetch("/api/trickroom/tailwind/sync-tokens", {
+	const response = await apiFetch("/api/trickroom/tailwind/sync-tokens", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -126,7 +127,7 @@ export const compileTailwindCss = async (request: {
 	/** Serialized `@theme { … }` so live (unsynced) token edits preview. */
 	themeOverrides?: string;
 }): Promise<CompileTailwindResponse> => {
-	const response = await fetch("/api/trickroom/tailwind/compile", {
+	const response = await apiFetch("/api/trickroom/tailwind/compile", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(request),
@@ -141,7 +142,7 @@ export const storedTailwindTokensQueryKey = (
 	withProjectQueryScope(["trickroom-tailwind-tokens", systemId], projectScope);
 
 export const getStoredTailwindTokens = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens`,
 	);
 
@@ -165,7 +166,7 @@ export const saveAndConfirmTailwindTokens = async ({
 	systemId,
 	domains,
 }: SaveAndConfirmTailwindTokensRequest) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens`,
 		{
 			method: "POST",

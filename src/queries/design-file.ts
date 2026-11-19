@@ -4,6 +4,7 @@ import type { DesignManifest } from "../stores/design-merge";
 import type { DesignPartRevisions } from "../stores/design-store";
 import type { Node, TrickroomDesign, TrickroomDesignSummary } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export const designSummariesQueryKey = ["trickroom-designs"];
@@ -99,7 +100,7 @@ export const fetchDesignBoard = async (
 	boardId: string,
 ): Promise<DesignBoardSnapshot | null> => {
 	const query = new URLSearchParams({ id: designId, board: boardId });
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/design/board?${query.toString()}`,
 	);
 	if (response.status === 404) {
@@ -120,7 +121,7 @@ export const fetchDesignManifest = async (
 	designId: string,
 ): Promise<DesignManifestSnapshot> => {
 	const query = new URLSearchParams({ id: designId });
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/design/manifest?${query.toString()}`,
 	);
 	return readJsonOrThrow<DesignManifestSnapshot>(response);
@@ -128,12 +129,12 @@ export const fetchDesignManifest = async (
 
 export const fetchDesignFile = async (designId: string) => {
 	const query = new URLSearchParams({ id: designId });
-	const response = await fetch(`/api/trickroom/design?${query.toString()}`);
+	const response = await apiFetch(`/api/trickroom/design?${query.toString()}`);
 	return readDesignSnapshot(response);
 };
 
 const fetchDesignSummaries = async () => {
-	const response = await fetch("/api/trickroom/designs");
+	const response = await apiFetch("/api/trickroom/designs");
 	return readJsonOrThrow<TrickroomDesignSummary[]>(response);
 };
 
@@ -145,7 +146,7 @@ const putDesignFile = async (
 	expectedRevision?: DesignFileRevision | null,
 ) => {
 	const query = new URLSearchParams({ id: designId });
-	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
+	const response = await apiFetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",
@@ -199,7 +200,7 @@ export const renameDesignFile = async (designId: string, name: string) => {
 
 export const deleteDesignFile = async (designId: string) => {
 	const query = new URLSearchParams({ id: designId });
-	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
+	const response = await apiFetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "DELETE",
 	});
 
@@ -211,7 +212,7 @@ export const createDesignFile = async (
 	design: TrickroomDesign,
 ) => {
 	const query = new URLSearchParams({ id: designId });
-	const response = await fetch(`/api/trickroom/design?${query.toString()}`, {
+	const response = await apiFetch(`/api/trickroom/design?${query.toString()}`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -233,7 +234,7 @@ export const extractDesignSubtreeToFile = async ({
 	elementId: string;
 	name?: string;
 }) => {
-	const response = await fetch("/api/trickroom/design/extract", {
+	const response = await apiFetch("/api/trickroom/design/extract", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",

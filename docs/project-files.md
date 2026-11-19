@@ -27,6 +27,7 @@ You can override the per-user app-state location with `TRICKROOM_HOME`. It holds
   locks/systems/<hash>.lock     component manifest write locks (see System Component Manifest)
   locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
   runtime/servers/<pid>.json    discovery records of running Trickroom servers
+  server-token                  session token of `trickroom serve --stable-token`, 0600
   feedback/                     created on first use, 0700
     feedback-YYYY-MM.jsonl      agent reports from feedback_submit (0600)
     calls-YYYY-MM.jsonl         per-call log, only with mcp.callLog (0600)
@@ -1069,6 +1070,8 @@ Fields Trickroom does not know (from a newer version, or added by hand) are kept
 Write behavior:
 
 - Opening a project upserts its local location.
+- The browser app's server registers the other git worktrees of a registered project as locations of the same `projectId` when they hold the project's `.trickroom/config.json`. `lastOpenedAt` is then the time the worktree was first seen. The last-active values do not move.
+- Removing a project in the app removes all of its locations in one write. The project's files stay on disk.
 - An MCP server started in a folder with an MCP-enabled `.trickroom` project upserts that folder's location without making it app-active.
 - MCP `project_select` with a `path` registers a project location and selects it for the MCP session.
 - `lastActiveProjectId` and `lastActiveLocationId` are app-level registry values and do not select or retarget MCP sessions.

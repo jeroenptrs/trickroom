@@ -1,8 +1,11 @@
 import { SwatchBook } from "lucide-react";
+import { withTabLocation } from "../utils/tab-location";
 import { Button } from "./ui/button";
 
 const getTokenReferenceUrl = (systemId: string) =>
-	`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html`;
+	withTabLocation(
+		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html`,
+	);
 
 export function OpenDesignTokensButton({
 	systemId,

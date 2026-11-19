@@ -32,6 +32,7 @@ import {
 } from "../../queries/tailwind-sync-tokens";
 import { defaultTailwindTokensByDomain } from "../../utils/default-tailwind-tokens";
 import { getKey, useWindowKeyDown } from "../../utils/editor-shortcuts";
+import { withTabLocation } from "../../utils/tab-location";
 import { computeColorOverrides } from "../../utils/tailwind-color-tokens";
 import {
 	computeTokenDomainOverrides,
@@ -598,7 +599,9 @@ function TokenMasthead({
 	const versionLabel = baselineVersion
 		? `Tailwind ${baselineVersion}`
 		: "Tailwind";
-	const exportHref = `/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html?download=1`;
+	const exportHref = withTabLocation(
+		`/api/trickroom/tailwind/systems/${encodeURIComponent(systemId)}/tokens.html?download=1`,
+	);
 
 	return (
 		<header className="border-b border-slate-200 bg-white">

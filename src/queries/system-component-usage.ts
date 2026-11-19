@@ -6,6 +6,7 @@ import type {
 	SystemComponentMigrationPolicyPrompt,
 	SystemComponentUsageScanDiagnostic,
 } from "../utils/system-component-usage-scan.types";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemComponentUsedByResponse = {
@@ -36,7 +37,7 @@ const fetchSystemComponentUsedBy = async (
 	systemId: string,
 	componentId: string,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/components/${encodeURIComponent(componentId)}/used-by`,
 	);
 	return readJsonOrThrow<SystemComponentUsedByResponse>(response);
@@ -55,7 +56,7 @@ const fetchSystemComponentUsage = async (
 		params.set("designFileId", options.designFileId);
 	}
 	const query = params.toString();
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/components/${encodeURIComponent(componentId)}/usage${query ? `?${query}` : ""}`,
 	);
 	return readJsonOrThrow<SystemComponentUsageResponse>(response);
@@ -73,7 +74,7 @@ const fetchSystemComponentsUsage = async (
 		params.set("designFileId", options.designFileId);
 	}
 	const query = params.toString();
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/components/usage${query ? `?${query}` : ""}`,
 	);
 	return readJsonOrThrow<SystemComponentUsageResponse>(response);

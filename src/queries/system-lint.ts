@@ -5,6 +5,7 @@ import type { LintReport } from "../lint/report";
 import type { LintRunDiagnostic } from "../lint/run-lint";
 import type { SystemLintConfigResponse } from "../routes/system-lint";
 import { HttpError, readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 /**
@@ -90,7 +91,7 @@ const lintUrl = (systemId: string) =>
 	`/api/trickroom/systems/${encodeURIComponent(systemId)}/lint`;
 
 const fetchSystemLintReport = async (systemId: string) => {
-	const response = await fetch(lintUrl(systemId));
+	const response = await apiFetch(lintUrl(systemId));
 	return readJsonOrThrow<SystemLintReportResponse>(response);
 };
 
@@ -115,7 +116,7 @@ export const systemLintQueryOptions = (
  * diagnostics.
  */
 export const runSystemLint = async (systemId: string) => {
-	const response = await fetch(lintUrl(systemId), { method: "POST" });
+	const response = await apiFetch(lintUrl(systemId), { method: "POST" });
 	return readLintJsonOrThrow<SystemLintRunResponse>(response);
 };
 
@@ -146,7 +147,7 @@ export const systemLintConfigQueryOptions = (
 		queryKey: systemLintConfigQueryKey(systemId, projectScope),
 		queryFn: async () =>
 			readJsonOrThrow<SystemLintConfigResponse>(
-				await fetch(`${lintUrl(systemId)}/config`),
+				await apiFetch(`${lintUrl(systemId)}/config`),
 			),
 	});
 
@@ -160,7 +161,7 @@ export const saveSystemLintConfig = async (
 	systemId: string,
 	input: { config: LintConfig; revision: string | null },
 ) => {
-	const response = await fetch(`${lintUrl(systemId)}/config`, {
+	const response = await apiFetch(`${lintUrl(systemId)}/config`, {
 		method: "PUT",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(input),

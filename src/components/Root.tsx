@@ -5,6 +5,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { useProjectFileEvents } from "../hooks/useProjectFileEvents";
 import { useTailwindSyncController } from "../hooks/useTailwindSyncController";
+import { useWorkspaceEvents } from "../hooks/useWorkspaceEvents";
 import { configFileQueryOptions } from "../queries/config-file";
 import { getProjectQueryScope } from "../queries/project-scope";
 import {
@@ -14,6 +15,11 @@ import {
 } from "../queries/projects";
 import { systemsQueryOptions } from "../queries/systems";
 import { HttpError } from "../utils/readJsonOrThrow";
+import {
+	getCheckoutUrl,
+	getTabPath,
+	tabLocationId,
+} from "../utils/tab-location";
 import { Capture, ComponentCapture } from "./Capture";
 import { CreateProjectPanel } from "./CreateProjectPanel";
 import {
@@ -133,6 +139,11 @@ function RootLoadError({
 		mutationFn: closeProject,
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
+			if (tabLocationId) {
+				// Leave the checkout this tab is pinned to.
+				window.location.assign("/");
+				return;
+			}
 			navigate("/", { replace: true });
 		},
 	});
@@ -203,10 +214,79 @@ function HomeRoutes() {
 	);
 }
 
+/**
+ * A pinned tab with nothing to show: the checkout's folder is gone, or the
+ * branch checked out in it has no Trickroom project.
+ */
+function CheckoutGone({ reason }: { reason: "removed" | "no-project" }) {
+	return (
+		<main className="flex h-screen w-screen items-center justify-center bg-slate-50 text-slate-950">
+			<EmptyState
+				icon={TriangleAlert}
+				title={
+					reason === "removed"
+						? "This checkout is no longer on this machine"
+						: "No Trickroom project in this checkout"
+				}
+				description={
+					reason === "removed"
+						? "Its folder was removed, for example when a worktree was cleaned up."
+						: "The branch checked out in this folder has no .trickroom config."
+				}
+				action={
+					<Button
+						type="button"
+						variant="filled"
+						onClick={() => window.location.assign("/")}
+					>
+						Show projects
+					</Button>
+				}
+			/>
+		</main>
+	);
+}
+
+// The capture pages photograph the server's active project and are never
+// pinned by the screenshot service's own URLs.
+const isUnpinnedCapturePage =
+	!tabLocationId && getTabPath().startsWith("/capture/");
+/**
+ * A tab that is not pinned shows the home screen. Only as it loads does it
+ * move to the server's active project (`trickroom serve <path>`, an old
+ * link); a project another tab opens later does not take it over.
+ */
+let unpinnedLoadSettled = false;
+
 export function Root() {
 	const navigate = useNavigate();
 	const sessionQuery = useQuery(sessionQueryOptions());
-	const activeProject = sessionQuery.data?.activeProject;
+	// Follows the server: another tab switching projects, worktrees coming
+	// and going.
+	useWorkspaceEvents();
+	const sessionProject = sessionQuery.data?.activeProject;
+	const showsSessionProject = Boolean(tabLocationId) || isUnpinnedCapturePage;
+	const activeProject = showsSessionProject ? sessionProject : null;
+	const redirectLocationId =
+		!showsSessionProject &&
+		!unpinnedLoadSettled &&
+		sessionQuery.isSuccess &&
+		sessionProject &&
+		getTabPath() !== "/new"
+			? sessionProject.locationId
+			: null;
+	useEffect(() => {
+		if (showsSessionProject || !sessionQuery.isSuccess) {
+			return;
+		}
+		if (redirectLocationId) {
+			window.location.replace(
+				`${getCheckoutUrl(redirectLocationId, window.location.pathname)}${window.location.search}`,
+			);
+			return;
+		}
+		unpinnedLoadSettled = true;
+	}, [redirectLocationId, sessionQuery.isSuccess, showsSessionProject]);
 	const activeProjectScope = getProjectQueryScope(activeProject);
 	const hasActiveProject = Boolean(activeProject);
 	const configQuery = useQuery({
@@ -340,8 +420,12 @@ export function Root() {
 		);
 	}
 
+	if (redirectLocationId) {
+		return <ProjectShellSkeleton />;
+	}
+
 	if (!hasActiveProject) {
-		return <HomeRoutes />;
+		return tabLocationId ? <CheckoutGone reason="removed" /> : <HomeRoutes />;
 	}
 
 	if (
@@ -356,7 +440,11 @@ export function Root() {
 			configQuery.error instanceof HttpError &&
 			configQuery.error.status === 404
 		) {
-			return <HomeRoutes />;
+			return tabLocationId ? (
+				<CheckoutGone reason="no-project" />
+			) : (
+				<HomeRoutes />
+			);
 		}
 
 		return (

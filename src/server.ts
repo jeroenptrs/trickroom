@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -9,9 +10,11 @@ import { resolveTrickroomHome } from "./app-state/home";
 import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
+	deleteProjectLocations,
 	getActiveProjectLocation,
 	listPresentProjectLocations,
 	type ProjectLocationRef,
+	probeProjectLocationRoot,
 	readProjectRegistry,
 	updateProjectLocationName,
 } from "./app-state/project-registry";
@@ -77,6 +80,10 @@ import {
 	createEditorSessions,
 	isEditorClientId,
 } from "./services/editor-sessions";
+import {
+	WorkspaceEvents,
+	type WorkspaceSnapshot,
+} from "./services/project-checkouts";
 import { ProjectFileEvents } from "./services/project-file-events";
 import type {
 	Node as DesignNode,
@@ -366,23 +373,44 @@ const assertExtractedDesignReferencesExist = async (
 	}
 };
 
+/** The location of the pinned tab (`/p/<locationId>/…`) a request came from. */
+const readRefererLocationId = (referer: string | undefined) => {
+	if (!referer) return undefined;
+	try {
+		const match = /^\/p\/([^/]+)(?=\/|$)/u.exec(new URL(referer).pathname);
+		return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
 const getRequestProject = async (
-	activeProject: TrickroomActiveProject | null,
+	target: { projectRoot: string; locationId: string } | null,
 ): Promise<TrickroomActiveProject | null> => {
-	if (!activeProject) {
+	if (!target) {
 		return null;
 	}
 
-	const config = await readProjectConfig(activeProject.projectRoot);
+	const config = await readProjectConfig(target.projectRoot);
 	return {
-		...getTrickroomProjectPaths(activeProject.projectRoot),
-		locationId: activeProject.locationId,
+		...getTrickroomProjectPaths(target.projectRoot),
+		locationId: target.locationId,
 		config,
 	};
 };
 
 const createNoProjectResponse = () =>
 	jsonError("No Trickroom project is selected.", 409);
+
+/**
+ * The registered location (checkout) a request is for, as a header or as the
+ * `location` query parameter for requests that cannot set headers (images,
+ * fonts, event streams). Each browser tab names its own, so tabs can show
+ * different projects and branches. Without it, a request is for the server's
+ * active project.
+ */
+export const requestLocationHeaderName = "x-trickroom-location";
+export const requestLocationQueryName = "location";
 
 const designRevisionHeaderName = "x-trickroom-revision";
 const designBoardRevisionHeaderName = "x-trickroom-board-revision";
@@ -608,17 +636,37 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			: (options.sessionToken?.trim() ?? undefined);
 	let activeProject: TrickroomActiveProject | null = null;
 	let initialProjectPromise: Promise<void> | null = null;
-	const projectFileEvents = new ProjectFileEvents(undefined, { trickroomHome });
-	const checkoutScopeEvents = new CheckoutScopeEvents();
+	// One pair of watchers per project folder, since tabs can show different
+	// checkouts. Both only watch while a stream listens.
+	const projectEvents = new Map<
+		string,
+		{ files: ProjectFileEvents; scope: CheckoutScopeEvents }
+	>();
+	const getProjectEvents = (project: TrickroomActiveProject) => {
+		let events = projectEvents.get(project.projectRoot);
+		if (!events) {
+			events = {
+				files: new ProjectFileEvents(undefined, { trickroomHome }),
+				scope: new CheckoutScopeEvents(),
+			};
+			events.files.setProjectRoot(project.projectRoot);
+			events.scope.setProjectRoot(project.projectRoot);
+			projectEvents.set(project.projectRoot, events);
+		}
+		events.files.setAnnotationProject(project.config.projectId ?? null);
+		return events;
+	};
+	/** The location the current request names, if any. */
+	const requestLocation = new AsyncLocalStorage<string>();
+	/** Roots of registered locations; a location's root never changes. */
+	const locationRoots = new Map<string, string>();
+	const workspaceEvents = new WorkspaceEvents({ trickroomHome });
 	const editorSessions = createEditorSessions();
 	const activeProjectListeners = new Set<
 		(project: TrickroomSessionProject | null) => void
 	>();
 	const setActiveProject = (project: TrickroomActiveProject | null) => {
 		activeProject = project;
-		projectFileEvents.setProjectRoot(project?.projectRoot ?? null);
-		projectFileEvents.setAnnotationProject(project?.config.projectId ?? null);
-		checkoutScopeEvents.setProjectRoot(project?.projectRoot ?? null);
 		const sessionProject = project ? toSessionProject(project) : null;
 		for (const listener of activeProjectListeners) {
 			listener(sessionProject);
@@ -672,6 +720,19 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		await next();
 	});
 
+	app.use("/api/trickroom/*", (c, next) => {
+		const locationId =
+			c.req.header(requestLocationHeaderName)?.trim() ||
+			c.req.query(requestLocationQueryName)?.trim() ||
+			// A file the page loads through a URL this server wrote into CSS
+			// (a font of a compiled stylesheet) carries neither. The page that
+			// asks for it is the pinned tab.
+			(c.req.method === "GET"
+				? readRefererLocationId(c.req.header("referer"))
+				: undefined);
+		return locationId ? requestLocation.run(locationId, next) : next();
+	});
+
 	if (options.initialProjectRoot) {
 		const openInitialProject = registerInitialProject
 			? openProject({
@@ -696,13 +757,40 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		});
 	}
 
+	/**
+	 * The project a request is for: the location it names, otherwise the
+	 * server's active project. A location that is not registered (any more)
+	 * yields no project.
+	 */
 	const resolveProjectForRequest = async () => {
 		if (initialProjectPromise) {
 			await initialProjectPromise;
 			initialProjectPromise = null;
 		}
 
-		return getRequestProject(activeProject);
+		const locationId = requestLocation.getStore();
+		if (!locationId || activeProject?.locationId === locationId) {
+			return getRequestProject(activeProject);
+		}
+
+		if (!locationRoots.has(locationId)) {
+			const registry = await readProjectRegistry(trickroomHome);
+			for (const location of registry.locations) {
+				locationRoots.set(location.locationId, location.root);
+			}
+		}
+		const projectRoot = locationRoots.get(locationId);
+		return getRequestProject(projectRoot ? { projectRoot, locationId } : null);
+	};
+
+	/** Keeps the active project's cached config current after a config write. */
+	const refreshActiveProjectConfig = (
+		project: TrickroomActiveProject,
+		config: TrickroomConfig,
+	) => {
+		if (activeProject?.locationId === project.locationId) {
+			setActiveProject({ ...project, config });
+		}
 	};
 
 	app.get("/api/trickroom/health", async (c) => {
@@ -734,8 +822,13 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			...registry,
 			locations: presentLocations,
 		});
+		// A tab that names its location gets that project as its own, whatever
+		// the server's active project is; null when the location is gone.
+		const sessionProject = requestLocation.getStore()
+			? await resolveProjectForRequest().catch(() => null)
+			: activeProject;
 		return c.json({
-			activeProject: activeProject ? toSessionProject(activeProject) : null,
+			activeProject: sessionProject ? toSessionProject(sessionProject) : null,
 			registryActiveProject: registryActiveLocation
 				? toSessionProject(registryActiveLocation)
 				: null,
@@ -743,14 +836,110 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 		});
 	});
 
+	/**
+	 * A checkout whose folder was removed (a worktree cleaned up) cannot stay
+	 * open: the server goes back to no project, and every tab follows.
+	 */
+	const closeActiveProjectIfRemoved = async () => {
+		const project = activeProject;
+		if (
+			!project ||
+			(await probeProjectLocationRoot(project.projectRoot)) !== "missing"
+		) {
+			return;
+		}
+		if (activeProject === project) {
+			setActiveProject(null);
+			await clearActiveProjectLocation(trickroomHome);
+		}
+	};
+
+	const toWorkspaceResponse = (snapshot: WorkspaceSnapshot) => ({
+		projects: snapshot.projects,
+		activeLocationId: activeProject?.locationId ?? null,
+	});
+
+	app.get("/api/trickroom/workspace", async (c) => {
+		if (initialProjectPromise) {
+			await initialProjectPromise;
+			initialProjectPromise = null;
+		}
+		const snapshot = await workspaceEvents.refresh();
+		await closeActiveProjectIfRemoved();
+		return c.json(toWorkspaceResponse(snapshot));
+	});
+
+	// Server-wide, unlike `/events`: it needs no open project, so the home
+	// screen follows worktrees too.
+	app.get("/api/trickroom/workspace/events", (c) =>
+		streamSSE(c, async (stream) => {
+			let resolveClosed: (() => void) | null = null;
+			const closed = new Promise<void>((resolve) => {
+				resolveClosed = resolve;
+			});
+			let sendQueue = Promise.resolve();
+			const enqueue = (event: string, data: string) => {
+				sendQueue = sendQueue
+					.then(() => stream.writeSSE({ event, data }))
+					.catch(() => resolveClosed?.());
+			};
+			const unsubscribeWorkspace = workspaceEvents.subscribe(() => {
+				void closeActiveProjectIfRemoved().finally(() =>
+					enqueue("workspace", "{}"),
+				);
+			});
+			let lastActive = activeProject
+				? `${activeProject.locationId}\0${activeProject.config.name}`
+				: null;
+			const unsubscribeActive = runtime.subscribeActiveProject((project) => {
+				const next = project ? `${project.locationId}\0${project.name}` : null;
+				if (next === lastActive) return;
+				lastActive = next;
+				enqueue(
+					"active-project",
+					JSON.stringify({ locationId: project?.locationId ?? null }),
+				);
+			});
+			const heartbeat = setInterval(() => enqueue("heartbeat", "{}"), 15_000);
+			stream.onAbort(() => resolveClosed?.());
+			enqueue(
+				"ready",
+				JSON.stringify({ locationId: activeProject?.locationId ?? null }),
+			);
+
+			await closed;
+			clearInterval(heartbeat);
+			unsubscribeWorkspace();
+			unsubscribeActive();
+		}),
+	);
+
+	app.post("/api/trickroom/workspace/projects/:projectId/remove", async (c) => {
+		const projectId = c.req.param("projectId").trim();
+		const deleted = projectId
+			? await deleteProjectLocations({ trickroomHome, projectId })
+			: null;
+		if (!deleted) {
+			return jsonError("Project not found.", 404);
+		}
+
+		for (const location of deleted.locations) {
+			locationRoots.delete(location.locationId);
+		}
+		if (activeProject?.config.projectId === projectId) {
+			setActiveProject(null);
+		}
+
+		return c.json({ removedLocations: deleted.locations.length });
+	});
+
 	app.get("/api/trickroom/events", async (c) => {
 		const project = await resolveProjectForRequest();
 		if (!project) {
 			return createNoProjectResponse();
 		}
-		projectFileEvents.setProjectRoot(project.projectRoot);
-		projectFileEvents.setAnnotationProject(project.config.projectId ?? null);
-		checkoutScopeEvents.setProjectRoot(project.projectRoot);
+		const { files: projectFileEvents, scope: checkoutScopeEvents } =
+			getProjectEvents(project);
 		const clientId = c.req.query("clientId");
 
 		return streamSSE(c, async (stream) => {
@@ -961,6 +1150,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 			return jsonError("Project location not found.", 404);
 		}
 
+		locationRoots.delete(locationId);
 		if (activeProject?.locationId === locationId) {
 			setActiveProject(null);
 		}
@@ -1161,7 +1351,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				config,
 			);
-			setActiveProject({ ...project, config: writtenConfig });
+			refreshActiveProjectConfig(project, writtenConfig);
 			return c.json(writtenConfig, 201);
 		} catch {
 			return jsonError("Failed to create trickroom project", 500);
@@ -1194,7 +1384,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				nextConfig,
 			);
-			setActiveProject({ ...project, config: writtenConfig });
+			refreshActiveProjectConfig(project, writtenConfig);
 			return c.json(writtenConfig);
 		} catch {
 			return jsonError("Failed to update MCP settings", 500);
@@ -1281,7 +1471,7 @@ export const createTrickroomApp = (options: TrickroomAppOptions = {}) => {
 				project.projectRoot,
 				setConfigDefaultSystemId(project.config, defaultSystemPayload.systemId),
 			);
-			setActiveProject({ ...project, config: writtenConfig });
+			refreshActiveProjectConfig(project, writtenConfig);
 			return c.json(writtenConfig);
 		} catch {
 			return jsonError("Failed to update default system", 500);

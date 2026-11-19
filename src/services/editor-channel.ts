@@ -317,8 +317,12 @@ export const selectEditorServer = (
 		};
 	}
 
+	// A server shows the project when it is its active project, or when one
+	// of its tabs has it open: tabs of one server can show different projects.
 	const onProject = contexts.filter(
-		({ server }) => server.projectId === projectId,
+		({ server, context }) =>
+			server.projectId === projectId ||
+			(context?.clients ?? []).some((client) => client.projectId === projectId),
 	);
 	const otherProjects = (entries: ServerContext[]) => {
 		const seen = new Map<

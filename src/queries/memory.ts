@@ -10,6 +10,7 @@ import type {
 	ResolvedMemoryReference,
 } from "../utils/memory-references.shared";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type {
@@ -126,7 +127,7 @@ const fetchMemoryNotes = async (
 		params.set("resolveReferences", "true");
 	}
 	const suffix = params.size > 0 ? `?${params.toString()}` : "";
-	const response = await fetch(`${memoryBaseUrl(scope)}${suffix}`);
+	const response = await apiFetch(`${memoryBaseUrl(scope)}${suffix}`);
 	return readJsonOrThrow<MemoryListResponse>(response);
 };
 
@@ -148,7 +149,7 @@ export const createMemoryNote = async (
 	scope: MemoryQueryScope,
 	params: CreateMemoryNoteParams,
 ) => {
-	const response = await fetch(memoryBaseUrl(scope), {
+	const response = await apiFetch(memoryBaseUrl(scope), {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(params),
@@ -161,7 +162,7 @@ export const updateMemoryNote = async (
 	noteId: string,
 	params: UpdateMemoryNoteParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${memoryBaseUrl(scope)}/${encodeURIComponent(noteId)}`,
 		{
 			method: "PATCH",
@@ -177,7 +178,7 @@ export const deleteMemoryNote = async (
 	noteId: string,
 	expectedRevision: string,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${memoryBaseUrl(scope)}/${encodeURIComponent(noteId)}`,
 		{
 			method: "DELETE",
@@ -213,7 +214,7 @@ const fetchReferenceTargets = async (
 	if (query) {
 		params.set("query", query);
 	}
-	const response = await fetch(
+	const response = await apiFetch(
 		`${memoryBaseUrl(scope)}/reference-targets?${params.toString()}`,
 	);
 	return readJsonOrThrow<ReferenceTargetsResponse>(response);

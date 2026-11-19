@@ -1,11 +1,10 @@
 import { Field } from "@base-ui/react/field";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Folder, TriangleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
-import { configFileQueryKey } from "../queries/config-file";
-import { openProject, sessionQueryKey } from "../queries/projects";
-import { systemsQueryKey } from "../queries/systems";
+import { openProject } from "../queries/projects";
+import { openCheckoutInTab } from "../utils/tab-location";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import { FieldControl } from "./ui/input";
@@ -16,15 +15,9 @@ export function OpenProjectPanel() {
 	const [path, setPath] = useState("");
 	const [pathError, setPathError] = useState<string | null>(null);
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const openMutation = useMutation({
 		mutationFn: (targetPath: string) => openProject({ path: targetPath }),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
-			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
-			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
-			navigate("/", { replace: true });
-		},
+		onSuccess: (response) => openCheckoutInTab(response.project.locationId),
 	});
 
 	const hasPath = path.trim().length > 0;

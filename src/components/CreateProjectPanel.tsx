@@ -7,14 +7,19 @@ import {
 	configFileQueryOptions,
 	createConfigFile,
 } from "../queries/config-file";
-import { openProject, sessionQueryKey } from "../queries/projects";
+import {
+	openProject,
+	sessionQueryKey,
+	type TrickroomProjectSummary,
+} from "../queries/projects";
 import { systemsQueryKey } from "../queries/systems";
+import type { TrickroomConfig } from "../types";
 import { HttpError } from "../utils/readJsonOrThrow";
 import {
 	systemNameHasStorageKey,
 	systemNameStorageKeyError,
 } from "../utils/system-name";
-import type { CreateProjectRouteState } from "./project/CommandMenu";
+import { openCheckoutInTab, tabLocationId } from "../utils/tab-location";
 import { Alert } from "./ui/alert";
 import { Button } from "./ui/button";
 import Checkbox from "./ui/checkbox";
@@ -46,15 +51,18 @@ export function CreateProjectPanel() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const location = useLocation();
-	const reopenProjectPath = (location.state as CreateProjectRouteState | null)
-		?.reopenProjectPath;
+	// The checkout the command menu came from; Cancel goes back to it.
+	const reopenLocationId = new URLSearchParams(location.search).get("reopen");
 	const configQuery = useQuery(configFileQueryOptions());
 
+	// A tab that is not pinned to a checkout always creates a project in a
+	// folder the form asks for, whatever project the server has active.
 	const isNoProjectCreate =
-		configQuery.isError &&
-		configQuery.error instanceof HttpError &&
-		configQuery.error.status === 409;
-	const hasActiveConfig = configQuery.isSuccess;
+		!tabLocationId ||
+		(configQuery.isError &&
+			configQuery.error instanceof HttpError &&
+			configQuery.error.status === 409);
+	const hasActiveConfig = Boolean(tabLocationId) && configQuery.isSuccess;
 	const errors: Partial<Record<FieldName, string>> = {};
 	if (!name.trim()) {
 		errors.name = "Enter a project name.";
@@ -81,7 +89,9 @@ export function CreateProjectPanel() {
 		);
 
 	const createProjectMutation = useMutation({
-		mutationFn: () => {
+		mutationFn: async (): Promise<
+			TrickroomConfig | { project: TrickroomProjectSummary }
+		> => {
 			const trimmedSystemName = systemName.trim();
 			const trimmedSystemCssPath = systemCssPath.trim();
 			const config = {
@@ -105,19 +115,14 @@ export function CreateProjectPanel() {
 
 			return createConfigFile(config);
 		},
-		onSuccess: async () => {
+		onSuccess: async (result) => {
+			if ("project" in result) {
+				// A new project: the tab loads it under its own URL.
+				openCheckoutInTab(result.project.locationId);
+				return;
+			}
 			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
-			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
-			navigate("/", { replace: true });
-		},
-	});
-
-	const reopenMutation = useMutation({
-		mutationFn: (path: string) => openProject({ path }),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: sessionQueryKey });
-			await queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 			await queryClient.invalidateQueries({ queryKey: systemsQueryKey });
 			navigate("/", { replace: true });
 		},
@@ -151,8 +156,8 @@ export function CreateProjectPanel() {
 
 	// Cancel goes back to the project the command menu closed, if any.
 	const handleCancel = () => {
-		if (reopenProjectPath) {
-			reopenMutation.mutate(reopenProjectPath);
+		if (reopenLocationId) {
+			openCheckoutInTab(reopenLocationId);
 			return;
 		}
 		navigate("/");
@@ -175,11 +180,8 @@ export function CreateProjectPanel() {
 
 	const createErrorMessage = (createProjectMutation.error as Error | null)
 		?.message;
-	const reopenErrorMessage = (reopenMutation.error as Error | null)?.message;
 	const inputsDisabled =
-		createProjectMutation.isPending ||
-		configQuery.isPending ||
-		reopenMutation.isPending;
+		createProjectMutation.isPending || configQuery.isPending;
 
 	return (
 		<form className="flex flex-1 flex-col" onSubmit={handleSubmit}>
@@ -325,11 +327,6 @@ export function CreateProjectPanel() {
 						Could not create {name.trim()}: {createErrorMessage}
 					</Alert>
 				) : null}
-				{reopenMutation.isError ? (
-					<Alert variant="panel">
-						Could not reopen the project: {reopenErrorMessage}
-					</Alert>
-				) : null}
 			</div>
 
 			<div className="flex items-center justify-end gap-2 border-t border-slate-200 px-8 py-4">
@@ -337,14 +334,14 @@ export function CreateProjectPanel() {
 					type="button"
 					variant="ghost"
 					onClick={handleCancel}
-					disabled={createProjectMutation.isPending || reopenMutation.isPending}
+					disabled={createProjectMutation.isPending}
 				>
-					{reopenMutation.isPending ? "Reopening…" : "Cancel"}
+					Cancel
 				</Button>
 				<Button
 					type="submit"
 					variant="filled"
-					disabled={createProjectMutation.isPending || reopenMutation.isPending}
+					disabled={createProjectMutation.isPending}
 				>
 					{createProjectMutation.isPending ? "Creating…" : "Create project"}
 				</Button>

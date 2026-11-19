@@ -1,3 +1,4 @@
+import { withTabLocation } from "./tab-location";
 /**
  * Helpers for using a trickroom system asset as a CSS background image.
  *
@@ -10,7 +11,9 @@
 
 /** File endpoint for an asset — mirrors `libraries/trickroom/asset.tsx`. */
 export function assetFileUrl(systemId: string, assetId: string): string {
-	return `/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(assetId)}/file`;
+	return withTabLocation(
+		`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(assetId)}/file`,
+	);
 }
 
 /** CSS custom-property name holding an asset's `url()` for background-image. */

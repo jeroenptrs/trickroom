@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type AuditLogSummary = {
@@ -14,7 +15,7 @@ export const auditLogSummaryProjectQueryKey = (
 ) => withProjectQueryScope(auditLogSummaryQueryKey, projectScope);
 
 const fetchAuditLogSummary = async () => {
-	const response = await fetch("/api/trickroom/audit-log/summary");
+	const response = await apiFetch("/api/trickroom/audit-log/summary");
 	return readJsonOrThrow<AuditLogSummary>(response);
 };
 

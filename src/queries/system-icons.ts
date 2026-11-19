@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemIconSummary = {
@@ -27,14 +28,14 @@ export type SystemIconsResponse = {
 };
 
 const fetchSystemIcons = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons`,
 	);
 	return readJsonOrThrow<SystemIconsResponse>(response);
 };
 
 const fetchSystemIconSvg = async (systemId: string, iconId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`,
 	);
 
@@ -46,7 +47,7 @@ const fetchSystemIconSvg = async (systemId: string, iconId: string) => {
 };
 
 const syncSystemIcons = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/sync`,
 		{ method: "POST" },
 	);
@@ -60,7 +61,7 @@ export const addSystemIconFolder = async ({
 	systemId: string;
 	folderPath: string;
 }) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/folders`,
 		{
 			method: "POST",
@@ -78,7 +79,7 @@ export const removeSystemIconFolder = async ({
 	systemId: string;
 	folderPath: string;
 }) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/folders`,
 		{
 			method: "DELETE",

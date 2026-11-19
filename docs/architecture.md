@@ -47,6 +47,21 @@ Opening a project ensures `.trickroom/config.json` exists with a stable `project
 
 When `TRICKROOM_PROJECT_DIR` is set, startup opens that project. Otherwise the app starts without an active project and lets the UI open one by path.
 
+## Workspace: Projects And Checkouts
+
+One server serves every project on the machine. A project (one `projectId`) can be present in several folders: a clone, and each git worktree of it. Each folder is a checkout, and a registry location.
+
+- **Listing.** `readWorkspace` (`src/services/project-checkouts.ts`) groups the registry's present locations by `projectId` and reads each checkout's branch from its git folder (`src/services/git-worktrees.ts`, no git process). `GET /api/trickroom/workspace` returns `{ projects: [{ projectId, name, checkouts }], activeLocationId }`. A checkout has `locationId`, `projectRoot`, `branch`, `detachedHead`, `worktreePath`, `isMainWorktree` and `lastOpenedAt`.
+- **Discovery.** `discoverProjectCheckouts` lists the worktrees of every registered project's repository (the main worktree and each entry of `<git common dir>/worktrees/`). A worktree is registered as a location when the same folder inside it has a `.trickroom/config.json` with the project's `projectId`, so a project below the repository root is found too. One registered checkout is enough to find the others. A branch without the config is skipped.
+- **Events.** `WorkspaceEvents` runs discovery and the listing again when the registry file, a repository's `worktrees/` folder or a checkout's `HEAD` changes, and every 10 seconds while a browser listens, because deleting a worktree folder without git changes none of those. `GET /api/trickroom/workspace/events` is a server-sent stream that needs no open project. It sends `workspace` when the list changed and `active-project` when the server opened or closed a checkout. `useWorkspaceEvents` (mounted by `Root`) refetches the workspace and session queries on both, and after a reconnect.
+- **Removal.** A checkout whose folder is gone leaves the list on the next read. When it was the open one, the server closes it and every tab returns to the home screen. `POST /api/trickroom/workspace/projects/:projectId/remove` removes all locations of a project in one registry write. Removing a single location would not last, because discovery registers it again from a sibling.
+- **A checkout per tab.** A tab at `/p/<locationId>/…` is pinned to that location (`src/utils/tab-location.ts`). The router runs with that prefix as its basename, so links and navigation stay inside the checkout, and switching checkout is a full page load of another prefix. Two tabs can therefore show two projects, or two branches of one, at the same time.
+- **Requests name their location.** `apiFetch` sends the tab's location in the `x-trickroom-location` header. URLs that cannot carry a header (images, fonts, event streams, links) get `?location=` through `withTabLocation`. For a `GET` with neither, the server reads the location from a `Referer` under `/p/<locationId>/`, which covers font URLs the server writes into compiled CSS. A middleware puts the location in an `AsyncLocalStorage`, and `resolveProjectForRequest` reads it, so every project-scoped route serves the named checkout without its own parameter. A location that is not registered yields no project (409).
+- **The active project is the fallback.** A request that names no location is for the server's active project: the last one opened. The capture pages, MCP's capture host and local clients rely on it. An unpinned tab moves to the active project's URL once, as it loads (`trickroom serve <path>`, an old link), except on `/new`. After that it stays on the home screen, whatever other tabs open.
+- **Session.** `GET /api/trickroom/session` answers a request that names a location with that checkout as `activeProject`, or null when it is gone. A pinned tab then shows that the checkout is no longer on the machine.
+- **Events per checkout.** `GET /api/trickroom/events` uses one `ProjectFileEvents` and one `CheckoutScopeEvents` per project folder, created on first use, so each tab hears the files of its own checkout.
+- **Screenshots.** `POST /api/trickroom/screenshot` forwards the request's location as a header of the capture page, so the page loads the same checkout.
+
 ## HTTP Authentication
 
 Loopback hosts such as `localhost`, `127.0.0.1`, and `::1` remain unauthenticated unless `TRICKROOM_SESSION_TOKEN` is explicitly configured. Binding the production server or Vite development server to a non-loopback host without that variable fails at startup.
@@ -230,7 +245,7 @@ Design fields are null outside the design route. `focusedAt` is updated when the
 
 - `ok`, with `outcome` `revealed` (already open design), `navigated` (another design) or `queued` (hidden tab; applied when it is shown).
 - `blocked_dirty`: the tab would have to leave a design with unsaved changes, a save in flight or a pending conflict (or a system editor draft with unsaved edits). The human sees a toast.
-- `browser_on_other_project`: the server or the tab shows another project. The server's active project is never switched.
+- `browser_on_other_project`: no connected tab shows the project. Tabs name their own project, so the server's active project decides only when no tab shows the requested one. No tab is switched.
 - `no_browser`: no connected tab (or the given one is gone). `stale`: the tab did not acknowledge in time.
 
 The tab applies a request by navigating to the design's deep link, `/design/<uuid>?board=<id>&layer=<id>` (`src/utils/design-deep-link.ts`). The same link works on its own, including on a cold load: once the design is hydrated, `useDesignDeepLink` switches to the board (a layer implies its board), selects the layer, consumes the parameters and issues a reveal request. On reveal, `useStageNavigation` centres the canvas on the element (or scrolls it into view in responsive mode) once it is rendered and styled, the Layers panel expands collapsed ancestors and scrolls to the row, and `StageFocusHighlight` outlines the element with its layer name for about two seconds. The design route mounts one editor per design, so the stage hooks always bind to the current design's iframe.
@@ -242,7 +257,7 @@ The tab applies a request by navigating to the design's deep link, `/design/<uui
 - `getEditorContext(projectId, options?)` resolves with `ok` plus the server, the project's tabs and the focused tab, or with `no_server`, `no_browser`, `browser_on_other_project` or `stale` and a message.
 - `requestEditorFocus({ projectId, designFileId, boardId?, elementId?, clientId? }, options?)` resolves with the server's focus status (including `blocked_dirty`), the target tab and the outcome.
 
-Both list the discovery records, delete records whose process is gone (`process.kill(pid, 0)`) or whose URL no longer answers as a Trickroom server, probe the rest through `GET /api/trickroom/health` with the token, and use the server whose active project matches (the one with the most recently focused tab when several do). Requests time out after 0.75 s (health), 1.5 s (context) and 3.5 s (focus). They never throw.
+Both list the discovery records, delete records whose process is gone (`process.kill(pid, 0)`) or whose URL no longer answers as a Trickroom server, probe the rest through `GET /api/trickroom/health` with the token, and use the server that has the project as its active project or open in a tab (the one with the most recently focused tab when several do). Tabs match on `projectId`, which every checkout of a project shares, so a focus request can reach a tab that shows another branch. Requests time out after 0.75 s (health), 1.5 s (context) and 3.5 s (focus). They never throw.
 
 ## Build Shape
 

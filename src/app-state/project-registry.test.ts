@@ -13,10 +13,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	clearActiveProjectLocation,
 	deleteProjectLocation,
+	deleteProjectLocations,
 	getActiveProjectLocation,
 	listPresentProjectLocations,
 	PROJECT_LOCATION_MISSING_RETENTION_MS,
 	readProjectRegistry,
+	registerDiscoveredProjectLocations,
 	updateProjectLocationName,
 	upsertProjectLocation,
 } from "./project-registry";
@@ -224,6 +226,72 @@ describe("project registry", () => {
 		).toBeNull();
 		expect(deleted?.registry.lastActiveProjectId).toBeUndefined();
 		expect(deleted?.registry.lastActiveLocationId).toBeUndefined();
+	});
+
+	it("registers discovered locations without moving the active reference", async () => {
+		const trickroomHome = await tempDir(".tmp-trickroom-home-");
+		const { location } = await upsertProjectLocation({
+			trickroomHome,
+			projectId: "proj_1",
+			root: "/work/app",
+			name: "App",
+			now: "2026-01-01T00:00:00.000Z",
+		});
+
+		const added = await registerDiscoveredProjectLocations({
+			trickroomHome,
+			locations: [
+				{ projectId: "proj_1", root: "/work/app", name: "App" },
+				{ projectId: "proj_1", root: "/work/app-feature", name: "App" },
+				{ projectId: "proj_1", root: "/work/app-feature/", name: "App" },
+			],
+			now: "2026-01-02T00:00:00.000Z",
+		});
+
+		expect(added.map((entry) => entry.root)).toEqual(["/work/app-feature"]);
+		const registry = await readProjectRegistry(trickroomHome);
+		expect(registry.locations.map((entry) => entry.root)).toEqual([
+			"/work/app-feature",
+			"/work/app",
+		]);
+		expect(registry.lastActiveLocationId).toBe(location.locationId);
+		await expect(
+			registerDiscoveredProjectLocations({ trickroomHome, locations: [] }),
+		).resolves.toEqual([]);
+	});
+
+	it("deletes every location of a project in one write", async () => {
+		const trickroomHome = await tempDir(".tmp-trickroom-home-");
+		for (const [projectId, root] of [
+			["proj_1", "/work/app"],
+			["proj_2", "/work/site"],
+			["proj_1", "/work/app-feature"],
+		]) {
+			await upsertProjectLocation({
+				trickroomHome,
+				projectId,
+				root,
+				name: projectId,
+			});
+		}
+
+		const deleted = await deleteProjectLocations({
+			trickroomHome,
+			projectId: "proj_1",
+		});
+
+		expect(deleted?.locations.map((entry) => entry.root).sort()).toEqual([
+			"/work/app",
+			"/work/app-feature",
+		]);
+		expect(deleted?.registry.locations.map((entry) => entry.root)).toEqual([
+			"/work/site",
+		]);
+		expect(deleted?.registry.lastActiveProjectId).toBeUndefined();
+		expect(deleted?.registry.lastActiveLocationId).toBeUndefined();
+		await expect(
+			deleteProjectLocations({ trickroomHome, projectId: "proj_1" }),
+		).resolves.toBeNull();
 	});
 
 	it("returns null when deleting an unknown location", async () => {
