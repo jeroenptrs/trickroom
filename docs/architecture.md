@@ -78,6 +78,18 @@ On the first valid `GET` or `HEAD` request containing `?token=`, the Hono app:
 
 The `x-trickroom-session` header remains available for non-browser clients. Invalid or missing credentials receive HTTP 403.
 
+### Pairing a browser
+
+A browser can also sign in with a one-time code, which gives it a session of its own that expires and can be revoked. The token stays for automation: the bootstrap link, the MCP editor channel and the capture host.
+
+- **Store.** `src/app-state/auth-sessions.ts` keeps grants and sessions as files in `<TRICKROOM_HOME>/auth/` (`pairing/` and `sessions/`, folders `0700`, files `0600`), named by the SHA-256 of the code or of the cookie value. Neither the code nor the cookie value is stored, so reading the folder gives no way to sign in. The CLI and every server on the machine share the folder and never talk to each other.
+- **Code.** `trickroom pair` (`src/cli/auth.ts`, built into `dist/auth.js`) writes a grant and prints the code: 8 characters from an alphabet without `0`, `O`, `1`, `I`, `L` and `U`, valid for 2 minutes. `--days <n>` or `TRICKROOM_SESSION_DAYS` sets how long the session lasts (default 30, at most 365). Running the command takes shell access to the machine, which is the proof of rights.
+- **Pairing.** `POST /api/trickroom/auth/pair` with `{ code }` removes the grant file and, only when that removal succeeded, creates the session and sets the cookie. Two requests with one code therefore get one session. After 10 wrong codes in 5 minutes, across all browsers, the route answers 429 without spending a code.
+- **Session.** The cookie is `trickroom_session` again, with the session's expiry. The middleware accepts the token or a session. Sessions are cached per server and checked against their file every 5 seconds, which is how a revocation from the CLI takes effect. A session in use moves its expiry forward, at most once an hour, so it ends that many days after its last use.
+- **Without credentials.** A page load (`GET` that accepts `text/html`, outside `/api`) is redirected to `/pair?next=<path>`, and pairing returns to that path. `next` must be a path on this origin. An API call gets 403 with `x-trickroom-auth: required`; `apiFetch` then sends the tab to the pairing page once, so a session that ended mid-use leads back to the same screen. `/pair` is a self-contained page served by the app (`src/routes/auth.ts`), since no asset loads without credentials. A link from `trickroom pair` carries the code after the `#`, which browsers do not send to the server.
+- **Sign-out and revocation.** `POST /api/trickroom/auth/sign-out` ends the session of the cookie it is sent with (the command menu's **Sign out**, shown only to a paired browser). `trickroom sessions` lists sessions by a short id with the browser and expiry, and `trickroom sessions revoke <id>|--all` ends them. `GET /api/trickroom/auth/session` tells the app which kind of credential it has.
+- **When sign-in is on.** As before: when a session token is configured. A non-loopback bind always has one, and `--stable-token` or `--token` turns it on for a loopback bind behind a reverse proxy. Without a token there is nothing to pair with and `/pair` redirects to the app.
+
 ## HTTP API
 
 Routes under `/api/trickroom` include runtime health and session state, project open/close operations, config and design reads/writes, exports, systems, memory, and Tailwind synchronization. See `src/server.ts` and `src/routes/` for the source-of-truth route definitions.
@@ -268,6 +280,7 @@ Both list the discovery records, delete records whose process is gone (`process.
 - `pnpm build:mcp`: build `dist/mcp-stdio.js`.
 - `pnpm build:migrate`: build `dist/migrate.js`, run by `trickroom migrate`.
 - `pnpm build:feedback`: build `dist/feedback.js`, run by `trickroom feedback`.
+- `pnpm build:auth`: build `dist/auth.js`, run by `trickroom pair` and `trickroom sessions`.
 - `pnpm build:codegen`: build `dist/codegen.js`, run by `trickroom codegen`.
 - `pnpm build:lint`: build `dist/lint.js`, run by `trickroom lint`.
 - `pnpm build:tailwind-worker`: build `dist/tailwind-canonicalize-worker.js`, the worker thread that canonicalizes Tailwind classes for the lint rules off the main thread.

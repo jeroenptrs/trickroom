@@ -28,6 +28,8 @@ You can override the per-user app-state location with `TRICKROOM_HOME`. It holds
   locks/<hash>.lock             project registry write lock (see Per-User Project Registry)
   runtime/servers/<pid>.json    discovery records of running Trickroom servers
   server-token                  session token of `trickroom serve --stable-token`, 0600
+  auth/pairing/<hash>.json      one-time pairing grants of `trickroom pair`, 0600 (removed when used or expired)
+  auth/sessions/<hash>.json     browser sessions created by pairing, 0600 (see Architecture, Pairing a browser)
   feedback/                     created on first use, 0700
     feedback-YYYY-MM.jsonl      agent reports from feedback_submit (0600)
     calls-YYYY-MM.jsonl         per-call log, only with mcp.callLog (0600)

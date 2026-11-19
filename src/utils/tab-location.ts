@@ -56,6 +56,28 @@ export const withTabLocation = (url: string) => {
 	return `${beforeHash}${separator}${locationQueryName}=${encodeURIComponent(tabLocationId)}${hash === undefined ? "" : `#${hash}`}`;
 };
 
+const authRequiredHeaderName = "x-trickroom-auth";
+let sentToPair = false;
+
+/**
+ * A request the server refused because this browser's session ended (it
+ * expired or was revoked) sends the tab to the pairing page, once, and back
+ * to where it was afterwards.
+ */
+const followAuthRequired = (response: Response) => {
+	if (
+		response.status === 403 &&
+		!sentToPair &&
+		typeof window !== "undefined" &&
+		response.headers?.get(authRequiredHeaderName) === "required"
+	) {
+		sentToPair = true;
+		const here = `${window.location.pathname}${window.location.search}`;
+		window.location.assign(`/pair?next=${encodeURIComponent(here)}`);
+	}
+	return response;
+};
+
 /**
  * `fetch` for the Trickroom API. A pinned tab names its location on every
  * request; any other tab's request goes out unchanged.
@@ -65,9 +87,11 @@ export const apiFetch = (
 	init?: RequestInit,
 ): Promise<Response> => {
 	if (!tabLocationId || !input.startsWith(apiPrefix)) {
-		return init === undefined ? fetch(input) : fetch(input, init);
+		return (init === undefined ? fetch(input) : fetch(input, init)).then(
+			followAuthRequired,
+		);
 	}
 	const headers = new Headers(init?.headers);
 	headers.set(locationHeaderName, tabLocationId);
-	return fetch(input, { ...init, headers });
+	return fetch(input, { ...init, headers }).then(followAuthRequired);
 };
