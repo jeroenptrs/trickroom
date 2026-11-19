@@ -5,18 +5,29 @@ import type {
 	FontSource,
 	SupportedFontFormat,
 } from "./font-manifest-service";
+import { withTabLocation } from "./tab-location";
 
 const MANAGED_LINK_ID_PREFIX = "trickroom-font-stylesheet-";
 const MANAGED_STYLE_ID = "trickroom-system-fonts";
 
-export function projectFontFileUrl(systemId: string, sourcePath: string): string {
+export function projectFontFileUrl(
+	systemId: string,
+	sourcePath: string,
+): string {
 	const query = new URLSearchParams({ path: sourcePath });
-	return `/api/trickroom/systems/${encodeURIComponent(systemId)}/fonts/project-file?${query.toString()}`;
+	return withTabLocation(
+		`/api/trickroom/systems/${encodeURIComponent(systemId)}/fonts/project-file?${query.toString()}`,
+	);
 }
 
-export function managedFontFileUrl(systemId: string, managedPath: string): string {
+export function managedFontFileUrl(
+	systemId: string,
+	managedPath: string,
+): string {
 	const query = new URLSearchParams({ path: managedPath });
-	return `/api/trickroom/systems/${encodeURIComponent(systemId)}/fonts/managed-file?${query.toString()}`;
+	return withTabLocation(
+		`/api/trickroom/systems/${encodeURIComponent(systemId)}/fonts/managed-file?${query.toString()}`,
+	);
 }
 
 function cssString(value: string): string {
@@ -27,7 +38,10 @@ function cssString(value: string): string {
 	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function formatFontFaceSource(source: FontSource, systemId: string): string | null {
+function formatFontFaceSource(
+	source: FontSource,
+	systemId: string,
+): string | null {
 	switch (source.kind) {
 		case "remoteFile":
 			return source.format

@@ -1,3 +1,4 @@
+import { apiFetch } from "../utils/tab-location";
 /**
  * Renderer-side export trigger. Serializes the chosen board(s) from the live
  * store, POSTs them to the Node export route, and saves the returned bytes via a
@@ -93,7 +94,7 @@ function triggerBrowserDownload(blob: Blob, filename: string): void {
 export async function downloadExport(
 	payload: ExportDesignPayload,
 ): Promise<void> {
-	const response = await fetch("/api/trickroom/export", {
+	const response = await apiFetch("/api/trickroom/export", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(payload),

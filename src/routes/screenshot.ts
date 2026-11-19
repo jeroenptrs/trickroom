@@ -200,6 +200,10 @@ export function createScreenshotRoutes(
 		const sessionHeader = c.req.header("x-trickroom-session");
 		if (cookie) requestHeaders.cookie = cookie;
 		if (sessionHeader) requestHeaders["x-trickroom-session"] = sessionHeader;
+		// The capture page loads the same checkout this request is for.
+		const locationId =
+			c.req.header("x-trickroom-location") ?? c.req.query("location");
+		if (locationId) requestHeaders["x-trickroom-location"] = locationId;
 
 		try {
 			const result = await capture(request, {

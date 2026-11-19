@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { TrickroomConfig } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 
 export type TrickroomProjectSummary = {
 	projectId: string;
@@ -22,7 +23,7 @@ export type RenameProjectLocationResponse = TrickroomSessionResponse & {
 export const sessionQueryKey = ["trickroom-session"];
 
 const fetchSession = async (): Promise<TrickroomSessionResponse> => {
-	const response = await fetch("/api/trickroom/session");
+	const response = await apiFetch("/api/trickroom/session");
 	return readJsonOrThrow<TrickroomSessionResponse>(response);
 };
 
@@ -39,7 +40,7 @@ type OpenProjectPayload = {
 };
 
 export const openProject = async (payload: OpenProjectPayload) => {
-	const response = await fetch("/api/trickroom/projects/open", {
+	const response = await apiFetch("/api/trickroom/projects/open", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -47,11 +48,11 @@ export const openProject = async (payload: OpenProjectPayload) => {
 		body: JSON.stringify(payload),
 	});
 
-	return readJsonOrThrow<unknown>(response);
+	return readJsonOrThrow<{ project: TrickroomProjectSummary }>(response);
 };
 
 export const closeProject = async () => {
-	const response = await fetch("/api/trickroom/projects/close", {
+	const response = await apiFetch("/api/trickroom/projects/close", {
 		method: "POST",
 	});
 
@@ -59,7 +60,7 @@ export const closeProject = async () => {
 };
 
 export const deleteProjectLocation = async (locationId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/projects/${encodeURIComponent(locationId)}/delete`,
 		{
 			method: "POST",
@@ -76,7 +77,7 @@ export const renameProjectLocation = async ({
 	locationId: string;
 	name: string;
 }) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/projects/${encodeURIComponent(locationId)}/rename`,
 		{
 			method: "POST",

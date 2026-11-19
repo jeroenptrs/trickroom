@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight } from "lucide-react";
 import { auditLogSummaryQueryOptions } from "../../queries/audit-log";
+import { withTabLocation } from "../../utils/tab-location";
 import { useProjectConfig, useProjectScope } from "../contexts";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
@@ -46,7 +47,7 @@ export function AuditLogLink() {
 					</span>
 				) : (
 					<a
-						href="/api/trickroom/audit-log/summary"
+						href={withTabLocation("/api/trickroom/audit-log/summary")}
 						target="_blank"
 						rel="noreferrer"
 						className="flex shrink-0 items-center gap-1 px-1 py-0.5 font-mono text-[11px] text-cyan-700 hover:text-cyan-500 focus-visible:bg-cyan-50 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-200 focus-visible:text-cyan-500"

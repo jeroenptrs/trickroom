@@ -53,6 +53,7 @@ import {
 	isSystemComponentSlug,
 	type SystemComponentVariantSchema,
 } from "../../utils/system-components";
+import { withTabLocation } from "../../utils/tab-location";
 import { ComponentAnnotationsPanel } from "../annotations/ComponentAnnotationsPanel";
 import { Alert } from "../ui/alert";
 import {
@@ -1927,7 +1928,9 @@ function IconInspector({
 				<img
 					alt=""
 					className="size-10 object-contain"
-					src={`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`}
+					src={withTabLocation(
+						`/api/trickroom/systems/${encodeURIComponent(systemId)}/icons/${encodeURIComponent(iconId)}/svg`,
+					)}
 				/>
 			</div>
 			<InspectorField label="Name" value={icon.name} />

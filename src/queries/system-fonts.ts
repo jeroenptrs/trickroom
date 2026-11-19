@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { FontFace } from "../utils/font-manifest-service";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemFontSummary = {
@@ -20,7 +21,7 @@ export type SystemFontsResponse = {
 };
 
 const fetchSystemFonts = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/fonts`,
 	);
 	return readJsonOrThrow<SystemFontsResponse>(response);

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { assetIdProp } from "../../utils/resource-props";
+import { withTabLocation } from "../../utils/tab-location";
 import { useDesignSystemRenderContext } from "./render-context";
 
 type AssetProps = {
@@ -38,7 +39,9 @@ export function Asset({
 	return (
 		<img
 			className={className}
-			src={`/api/trickroom/systems/${encodeURIComponent(systemName)}/assets/${encodeURIComponent(normalizedAssetId)}/file`}
+			src={withTabLocation(
+				`/api/trickroom/systems/${encodeURIComponent(systemName)}/assets/${encodeURIComponent(normalizedAssetId)}/file`,
+			)}
 			alt={alt}
 			loading={loading}
 			decoding={decoding}

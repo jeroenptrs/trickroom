@@ -84,7 +84,16 @@ export const createEditorChannelRoutes = ({
 		}
 
 		const activeProjectId = await getActiveProjectId();
-		if (request.projectId && request.projectId !== activeProjectId) {
+		// Tabs name their own project, so one server can show several. The
+		// active project only decides when no tab shows the requested one.
+		const shownInTab = sessions
+			.list()
+			.clients.some((client) => client.projectId === request.projectId);
+		if (
+			request.projectId &&
+			request.projectId !== activeProjectId &&
+			!shownInTab
+		) {
 			const response: EditorFocusResponse = {
 				status: "browser_on_other_project",
 				clientId: null,

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch, withTabLocation } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemAssetSummary = {
@@ -35,10 +36,12 @@ export type CreateSystemAssetResponse = {
 };
 
 export const systemAssetFileUrl = (systemId: string, assetId: string) =>
-	`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(assetId)}/file`;
+	withTabLocation(
+		`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets/${encodeURIComponent(assetId)}/file`,
+	);
 
 const fetchSystemAssets = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets`,
 	);
 	return readJsonOrThrow<SystemAssetsResponse>(response);
@@ -48,7 +51,7 @@ export const createSystemAsset = async (
 	systemId: string,
 	params: CreateSystemAssetParams,
 ) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}/assets`,
 		{
 			method: "POST",

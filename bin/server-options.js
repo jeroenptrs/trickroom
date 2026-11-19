@@ -1,5 +1,31 @@
 import { randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { homedir } from "node:os";
+import path from "node:path";
+
+/** Where `--stable-token` keeps its token, readable by the owner only. */
+export const resolveStableTokenPath = (environment = process.env) =>
+	path.join(
+		environment.TRICKROOM_HOME?.trim()
+			? path.resolve(environment.TRICKROOM_HOME)
+			: path.join(homedir(), ".trickroom"),
+		"server-token",
+	);
+
+const fileTokenStore = {
+	read: (tokenPath) => {
+		try {
+			return readFileSync(tokenPath, "utf8").trim() || null;
+		} catch {
+			return null;
+		}
+	},
+	write: (tokenPath, token) => {
+		mkdirSync(path.dirname(tokenPath), { recursive: true });
+		writeFileSync(tokenPath, `${token}\n`, { mode: 0o600 });
+	},
+};
 
 const isLoopbackHost = (host) => {
 	const normalized = host
@@ -32,6 +58,7 @@ export const configureServerOptions = (
 	argv = process.argv,
 	environment = process.env,
 	generateToken = () => randomBytes(32).toString("base64url"),
+	tokenStore = fileTokenStore,
 ) => {
 	const forwardedArgs = argv.slice(0, 2);
 	let configuredHost;
@@ -39,6 +66,7 @@ export const configureServerOptions = (
 	let configuredPublicUrl;
 	let configuredPort;
 	let configuredToken;
+	let stableToken = false;
 	let noOpen = false;
 	let silent = false;
 	let positionalArgumentCount = 0;
@@ -123,6 +151,10 @@ export const configureServerOptions = (
 			}
 			continue;
 		}
+		if (argument === "--stable-token") {
+			stableToken = true;
+			continue;
+		}
 		if (argument === "--no-open") {
 			noOpen = true;
 			continue;
@@ -165,6 +197,19 @@ export const configureServerOptions = (
 		configuredHost ?? environment.TRICKROOM_HTTP_HOST ?? "localhost";
 	const effectivePort = parsePort(environment.TRICKROOM_HTTP_PORT ?? "18100");
 	let generatedSessionToken = false;
+	// A service keeps one token across restarts, so a browser's session
+	// cookie stays valid. Session auth is then on for loopback binds too,
+	// which is what a reverse proxy in front of the server connects to.
+	if (stableToken && !environment.TRICKROOM_SESSION_TOKEN?.trim()) {
+		const tokenPath = resolveStableTokenPath(environment);
+		let token = tokenStore.read(tokenPath);
+		if (!token) {
+			token = generateToken();
+			tokenStore.write(tokenPath, token);
+			generatedSessionToken = true;
+		}
+		environment.TRICKROOM_SESSION_TOKEN = token;
+	}
 	if (
 		!isLoopbackHost(effectiveHost) &&
 		!environment.TRICKROOM_SESSION_TOKEN?.trim()

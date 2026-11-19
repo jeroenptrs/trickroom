@@ -43,6 +43,57 @@ describe("configureServerOptions", () => {
 		expect(result.argv).toEqual(["node", "trickroom", "/project"]);
 	});
 
+	it("stores a stable token once and reuses it, on loopback too", () => {
+		const stored = new Map();
+		const tokenStore = {
+			read: (tokenPath) => stored.get(tokenPath) ?? null,
+			write: (tokenPath, token) => stored.set(tokenPath, token),
+		};
+		let generated = 0;
+		const run = () => {
+			const environment = { TRICKROOM_HOME: "/srv/trickroom-home" };
+			const result = configureServerOptions(
+				["node", "trickroom", "--stable-token"],
+				environment,
+				() => `generated-token-${++generated}`,
+				tokenStore,
+			);
+			return { environment, result };
+		};
+
+		const first = run();
+		const second = run();
+
+		expect([...stored]).toEqual([
+			["/srv/trickroom-home/server-token", "generated-token-1"],
+		]);
+		expect(first.result.host).toBe("localhost");
+		expect(first.result.sessionAuthEnabled).toBe(true);
+		expect(first.result.generatedSessionToken).toBe(true);
+		expect(second.result.token).toBe("generated-token-1");
+		expect(second.result.generatedSessionToken).toBe(false);
+		expect(second.environment.TRICKROOM_SESSION_TOKEN).toBe(
+			"generated-token-1",
+		);
+	});
+
+	it("prefers an explicit token over the stable one", () => {
+		const environment = {};
+		const result = configureServerOptions(
+			["node", "trickroom", "--stable-token", "--token", "chosen-token"],
+			environment,
+			() => "generated-token",
+			{
+				read: () => "stored-token",
+				write: () => {
+					throw new Error("An explicit token is never stored.");
+				},
+			},
+		);
+
+		expect(result.token).toBe("chosen-token");
+	});
+
 	it("preserves an explicitly configured token", () => {
 		const environment = { TRICKROOM_SESSION_TOKEN: "chosen-token" };
 		const result = configureServerOptions(

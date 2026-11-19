@@ -63,7 +63,9 @@ Project screen:
 - Set a project name during creation.
 - Optionally configure the first Tailwind system by name and CSS path.
 - Switch back to project selection.
-- Open recent projects.
+- Open a project on a branch: the home screen lists each project once, with a row per checkout (a clone or a git worktree) named after its branch.
+- Switch project or branch from an open project: the branch button in the header, or `Cmd` + `P`. Worktrees created or removed on the machine show up in both lists without a reload.
+- Each browser tab keeps its own project and branch, shown in the address as `/p/<location>/`. Open a second tab to compare two branches side by side; a switch in one tab does not move the others.
 - Create a new design file.
 - Open existing design files.
 - Review configured systems and token changes.

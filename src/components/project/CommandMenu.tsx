@@ -1,12 +1,13 @@
 import { Dialog as BaseUiDialog } from "@base-ui/react/dialog";
 import { useHotkey } from "@tanstack/react-hotkeys";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
 	CornerDownLeft,
 	FileCode2,
 	Folder,
 	FolderPlus,
 	Folders,
+	GitBranch,
 	Plus,
 	Settings2,
 	X,
@@ -18,18 +19,17 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useNavigate } from "react-router";
 import { toast } from "sonner";
-import { auditLogSummaryQueryKey } from "../../queries/audit-log";
-import { configFileQueryKey } from "../../queries/config-file";
-import { designSummariesQueryKey } from "../../queries/design-file";
 import {
 	closeProject,
 	openProject,
-	sessionQueryKey,
 	sessionQueryOptions,
 } from "../../queries/projects";
-import { systemsQueryKey } from "../../queries/systems";
+import {
+	getCheckoutLabel,
+	workspaceQueryOptions,
+} from "../../queries/workspace";
+import { openCheckoutInTab } from "../../utils/tab-location";
 import { openMcpToolSettings } from "../AppDialogHost";
 import { Alert } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -60,6 +60,7 @@ import {
 import { InputField } from "../ui/input";
 import { Kbd } from "../ui/kbd";
 import { Separator } from "../ui/separator";
+import { Tooltip } from "../ui/tooltip";
 import { CreateSystemDialog } from "./CreateSystemDialog";
 
 type CommandPage = "home" | "switcher";
@@ -70,15 +71,14 @@ const CREATE_NEW_PROJECT_COMMAND_VALUE = "Create new project";
 const CREATE_NEW_SYSTEM_COMMAND_VALUE = "Add system";
 const MCP_TOOLS_COMMAND_VALUE = "MCP tools";
 
-/** Router state for `/new` when the menu closed a project to create one. */
-export type CreateProjectRouteState = { reopenProjectPath?: string };
+// Unique per checkout: several checkouts share a project name.
+const getCheckoutCommandValue = (locationId: string) =>
+	`checkout ${locationId}`;
 
 export function CommandMenu() {
-	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const sessionQuery = useQuery(sessionQueryOptions());
 	const activeProject = sessionQuery.data?.activeProject;
-	const recentProjects = sessionQuery.data?.recentProjects ?? [];
+	const workspaceQuery = useQuery(workspaceQueryOptions());
 
 	const [open, setOpen] = useState(false);
 	const [page, setPage] = useState<CommandPage>("home");
@@ -89,10 +89,6 @@ export function CommandMenu() {
 	const [createSystemDialogOpen, setCreateSystemDialogOpen] = useState(false);
 	const [path, setPath] = useState("");
 	const [pathError, setPathError] = useState<string | null>(null);
-	const postCloseDestinationRef = useRef<{
-		path: string;
-		state?: CreateProjectRouteState;
-	}>({ path: "/" });
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	// Refocus the search input whenever the dialog opens.
@@ -102,34 +98,17 @@ export function CommandMenu() {
 		return () => clearTimeout(id);
 	}, [open]);
 
-	const refreshProjectQueries = async () => {
-		await Promise.all([
-			queryClient.invalidateQueries({ queryKey: sessionQueryKey }),
-			queryClient.invalidateQueries({ queryKey: configFileQueryKey }),
-			queryClient.invalidateQueries({ queryKey: designSummariesQueryKey }),
-			queryClient.invalidateQueries({ queryKey: systemsQueryKey }),
-			queryClient.invalidateQueries({ queryKey: auditLogSummaryQueryKey }),
-		]);
-		const destination = postCloseDestinationRef.current;
-		navigate(destination.path, { replace: true, state: destination.state });
-		postCloseDestinationRef.current = { path: "/" };
-	};
-
 	const openMutation = useMutation({
 		mutationFn: (targetPath: string) => openProject({ path: targetPath }),
-		onSuccess: async () => {
-			setPathDialogOpen(false);
-			setPath("");
-			setPathError(null);
-			await refreshProjectQueries();
-		},
+		// The tab loads the other checkout under its own URL. Tabs that show
+		// this one keep it.
+		onSuccess: (response) => openCheckoutInTab(response.project.locationId),
 	});
 
 	const closeMutation = useMutation({
 		mutationFn: closeProject,
-		onSuccess: refreshProjectQueries,
+		onSuccess: () => window.location.assign("/"),
 		onError: (error) => {
-			postCloseDestinationRef.current = { path: "/" };
 			toast.error("Could not close the project", {
 				description: error instanceof Error ? error.message : undefined,
 			});
@@ -139,15 +118,29 @@ export function CommandMenu() {
 	const isMutating = openMutation.isPending || closeMutation.isPending;
 
 	const currentLocationId = activeProject?.locationId;
-	const currentProjectRoot = activeProject?.projectRoot ?? "";
-	// const currentProjectName = activeProject?.name ?? "Project";
-	const otherRecentProjects = recentProjects.filter(
-		(p) =>
-			p.locationId !== currentLocationId &&
-			p.projectRoot !== currentProjectRoot,
-	);
-	const firstSwitcherCommandValue =
-		otherRecentProjects[0]?.name ?? OPEN_ANOTHER_FOLDER_COMMAND_VALUE;
+	const workspaceProjects = workspaceQuery.data?.projects ?? [];
+	const currentCheckout = workspaceProjects
+		.flatMap((project) => project.checkouts)
+		.find((checkout) => checkout.locationId === currentLocationId);
+	const currentBranchLabel = currentCheckout
+		? getCheckoutLabel(currentCheckout)
+		: null;
+	// The open project first, so its other branches are one keystroke away.
+	// The open checkout itself is left out.
+	const switcherGroups = workspaceProjects
+		.map((project) => ({
+			...project,
+			isCurrent: project.projectId === activeProject?.projectId,
+			checkouts: project.checkouts.filter(
+				(checkout) => checkout.locationId !== currentLocationId,
+			),
+		}))
+		.filter((project) => project.checkouts.length > 0)
+		.sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent));
+	const firstSwitcherCheckout = switcherGroups[0]?.checkouts[0];
+	const firstSwitcherCommandValue = firstSwitcherCheckout
+		? getCheckoutCommandValue(firstSwitcherCheckout.locationId)
+		: OPEN_ANOTHER_FOLDER_COMMAND_VALUE;
 
 	useEffect(() => {
 		if (!open) {
@@ -252,20 +245,17 @@ export function CommandMenu() {
 
 	const handleCloseProject = () => {
 		setOpen(false);
-		postCloseDestinationRef.current = { path: "/" };
 		closeMutation.mutate();
 	};
 
-	// The create form needs no open project. Cancel there reopens this one.
+	// The create form is outside any checkout. Cancel there comes back here.
 	const handleCreateNewProject = () => {
 		setOpen(false);
-		postCloseDestinationRef.current = {
-			path: "/new",
-			state: currentProjectRoot
-				? { reopenProjectPath: currentProjectRoot }
-				: undefined,
-		};
-		closeMutation.mutate();
+		window.location.assign(
+			currentLocationId
+				? `/new?reopen=${encodeURIComponent(currentLocationId)}`
+				: "/new",
+		);
 	};
 
 	const handleOpenMcpTools = () => {
@@ -289,21 +279,45 @@ export function CommandMenu() {
 		openMutation.mutate(nextPath);
 	};
 
-	const footerLabel = page === "switcher" ? "Project switcher" : null;
+	const footerLabel =
+		page === "switcher" ? "Project and branch switcher" : null;
 
 	return (
 		<>
-			<Button
-				type="button"
-				variant="outlined"
-				className="flex items-center gap-2"
-				disabled={isMutating}
-				aria-keyshortcuts="Meta+P"
-				onClick={() => openMenu("switcher")}
-			>
-				Switch project
-				<Kbd aria-hidden="true">⌘P</Kbd>
-			</Button>
+			{currentBranchLabel ? (
+				<Tooltip content="Switch project or branch">
+					<Button
+						type="button"
+						variant="outlined"
+						className="flex items-center gap-2"
+						disabled={isMutating}
+						aria-keyshortcuts="Meta+P"
+						aria-label={`Switch project or branch. Open: ${currentBranchLabel}`}
+						onClick={() => openMenu("switcher")}
+					>
+						<GitBranch
+							className="size-3.5 shrink-0 text-slate-500"
+							aria-hidden="true"
+						/>
+						<span className="max-w-56 truncate font-mono text-xs">
+							{currentBranchLabel}
+						</span>
+						<Kbd aria-hidden="true">⌘P</Kbd>
+					</Button>
+				</Tooltip>
+			) : (
+				<Button
+					type="button"
+					variant="outlined"
+					className="flex items-center gap-2"
+					disabled={isMutating}
+					aria-keyshortcuts="Meta+P"
+					onClick={() => openMenu("switcher")}
+				>
+					Switch project
+					<Kbd aria-hidden="true">⌘P</Kbd>
+				</Button>
+			)}
 
 			<BaseUiDialog.Root open={open} onOpenChange={handleOpenChange}>
 				<BaseUiDialog.Portal>
@@ -311,7 +325,9 @@ export function CommandMenu() {
 					<CommandDialogPopup
 						data-shortcuts-disabled=""
 						aria-label={
-							page === "switcher" ? "Project switcher" : "Command menu"
+							page === "switcher"
+								? "Project and branch switcher"
+								: "Command menu"
 						}
 						initialFocus={inputRef}
 						onKeyDownCapture={handleMenuKeyDown}
@@ -330,7 +346,9 @@ export function CommandMenu() {
 							<CommandInput
 								ref={inputRef}
 								placeholder={
-									page === "switcher" ? "Search projects…" : "Search commands…"
+									page === "switcher"
+										? "Search projects and branches…"
+										: "Search commands…"
 								}
 							/>
 
@@ -351,7 +369,7 @@ export function CommandMenu() {
 													aria-hidden="true"
 												/>
 												<span data-item-name="" className="flex-1 text-sm">
-													Switch project
+													Switch project or branch
 												</span>
 												<span
 													data-item-secondary=""
@@ -446,99 +464,98 @@ export function CommandMenu() {
 										</CommandGroup>
 									</>
 								) : (
-									<CommandGroup>
-										<CommandGroupLabel>Recent projects</CommandGroupLabel>
+									<>
+										{switcherGroups.map((project) => (
+											<CommandGroup key={project.projectId}>
+												<CommandGroupLabel>{project.name}</CommandGroupLabel>
 
-										{/**
-											{activeProject ? (
-												<CommandItem
-													value={currentProjectName}
-													keywords={[currentProjectRoot]}
-													disabled
-												>
-													<Folder
-														className="size-4 shrink-0 text-slate-500"
-														aria-hidden="true"
-													/>
-													<span className="flex min-w-0 flex-1 flex-col">
-														<span data-item-name="" className="truncate text-sm">
-															{currentProjectName}
-														</span>
-														<span
-															data-item-secondary=""
-															className="truncate font-mono text-[10px] text-slate-500"
+												{project.checkouts.map((checkout) => {
+													const label = getCheckoutLabel(checkout);
+													return (
+														<CommandItem
+															key={checkout.locationId}
+															value={getCheckoutCommandValue(
+																checkout.locationId,
+															)}
+															keywords={[
+																project.name,
+																label,
+																checkout.projectRoot,
+															]}
+															onSelect={() => {
+																setOpen(false);
+																switchToProject({
+																	name: `${project.name} on ${label}`,
+																	projectRoot: checkout.projectRoot,
+																});
+															}}
 														>
-															{currentProjectRoot}
-														</span>
-													</span>
-													<span className="shrink-0 font-mono text-[10px] text-cyan-700">
-														current
-													</span>
-												</CommandItem>
-											) : null}
-										*/}
-
-										{otherRecentProjects.map((project) => (
-											<CommandItem
-												key={`${project.projectId}-${project.locationId}`}
-												value={project.name}
-												keywords={[project.projectRoot]}
-												onSelect={() => {
-													setOpen(false);
-													switchToProject(project);
-												}}
-											>
-												<Folder
-													className="size-4 shrink-0 text-slate-500"
-													aria-hidden="true"
-												/>
-												<span className="flex min-w-0 flex-1 flex-col">
-													<span data-item-name="" className="truncate text-sm">
-														{project.name}
-													</span>
-													<span
-														data-item-secondary=""
-														className="truncate font-mono text-[10px] text-slate-500"
-													>
-														{project.projectRoot}
-													</span>
-												</span>
-												<CornerDownLeft
-													data-item-arrow=""
-													className="size-3.5 shrink-0 text-cyan-700 opacity-0"
-													aria-hidden="true"
-												/>
-											</CommandItem>
+															{checkout.branch || checkout.detachedHead ? (
+																<GitBranch
+																	className="size-4 shrink-0 text-slate-500"
+																	aria-hidden="true"
+																/>
+															) : (
+																<Folder
+																	className="size-4 shrink-0 text-slate-500"
+																	aria-hidden="true"
+																/>
+															)}
+															<span className="flex min-w-0 flex-1 flex-col">
+																<span
+																	data-item-name=""
+																	className="truncate text-sm"
+																>
+																	{label}
+																</span>
+																<span
+																	data-item-secondary=""
+																	className="truncate font-mono text-[10px] text-slate-500"
+																>
+																	{checkout.projectRoot}
+																</span>
+															</span>
+															<CornerDownLeft
+																data-item-arrow=""
+																className="size-3.5 shrink-0 text-cyan-700 opacity-0"
+																aria-hidden="true"
+															/>
+														</CommandItem>
+													);
+												})}
+											</CommandGroup>
 										))}
 
 										<CommandSeparator />
 
-										<CommandItem
-											value={OPEN_ANOTHER_FOLDER_COMMAND_VALUE}
-											onSelect={handleOpenAnotherFolder}
-										>
-											<FolderPlus
-												className="size-4 shrink-0 text-slate-500"
-												aria-hidden="true"
-											/>
-											<span data-item-name="" className="flex-1 text-sm">
-												Open another folder…
-											</span>
-										</CommandItem>
+										<CommandGroup>
+											<CommandItem
+												value={OPEN_ANOTHER_FOLDER_COMMAND_VALUE}
+												onSelect={handleOpenAnotherFolder}
+											>
+												<FolderPlus
+													className="size-4 shrink-0 text-slate-500"
+													aria-hidden="true"
+												/>
+												<span data-item-name="" className="flex-1 text-sm">
+													Open another folder…
+												</span>
+											</CommandItem>
 
-										<CommandItem
-											value={CREATE_NEW_PROJECT_COMMAND_VALUE}
-											onSelect={handleCreateNewProject}
-										>
-											<Plus
-												className="size-4 shrink-0 text-slate-500"
-												aria-hidden="true"
-											/>
-											<span data-item-name="" className="flex-1 text-sm">
-												Create new project…
-											</span>
-										</CommandItem>
-									</CommandGroup>
+											<CommandItem
+												value={CREATE_NEW_PROJECT_COMMAND_VALUE}
+												onSelect={handleCreateNewProject}
+											>
+												<Plus
+													className="size-4 shrink-0 text-slate-500"
+													aria-hidden="true"
+												/>
+												<span data-item-name="" className="flex-1 text-sm">
+													Create new project…
+												</span>
+											</CommandItem>
+										</CommandGroup>
+									</>
 								)}
 							</CommandList>
 

@@ -1,15 +1,16 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { TrickroomConfig } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 const fetchConfigFile = async () => {
-	const response = await fetch("/api/trickroom/config");
+	const response = await apiFetch("/api/trickroom/config");
 	return readJsonOrThrow<TrickroomConfig>(response);
 };
 
 export const createConfigFile = async (config: TrickroomConfig) => {
-	const response = await fetch("/api/trickroom/config", {
+	const response = await apiFetch("/api/trickroom/config", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -27,7 +28,7 @@ export type ProjectMcpSettings =
 export const updateProjectMcpSettings = async (
 	settings: ProjectMcpSettings,
 ) => {
-	const response = await fetch("/api/trickroom/config/mcp", {
+	const response = await apiFetch("/api/trickroom/config/mcp", {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",
@@ -39,7 +40,7 @@ export const updateProjectMcpSettings = async (
 };
 
 export const updateProjectDefaultSystem = async (systemId: string | null) => {
-	const response = await fetch("/api/trickroom/config/default-system", {
+	const response = await apiFetch("/api/trickroom/config/default-system", {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",

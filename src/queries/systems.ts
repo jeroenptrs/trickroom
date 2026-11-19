@@ -1,5 +1,6 @@
 import type { TrickroomConfig } from "../types";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type SystemSummary = {
@@ -31,7 +32,7 @@ export type DeleteSystemResponse = {
 };
 
 const fetchSystems = async () => {
-	const response = await fetch("/api/trickroom/systems");
+	const response = await apiFetch("/api/trickroom/systems");
 	return readJsonOrThrow<ListSystemsResponse>(response);
 };
 
@@ -55,7 +56,7 @@ export const updateSystem = async ({
 	nextSystemName?: string;
 	cssPath?: string;
 }) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}`,
 		{
 			method: "PATCH",
@@ -81,7 +82,7 @@ export const createSystem = async ({
 	cssPath: string;
 	setAsDefault?: boolean;
 }) => {
-	const response = await fetch("/api/trickroom/systems", {
+	const response = await apiFetch("/api/trickroom/systems", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -97,7 +98,7 @@ export const createSystem = async ({
 };
 
 export const deleteSystem = async (systemId: string) => {
-	const response = await fetch(
+	const response = await apiFetch(
 		`/api/trickroom/systems/${encodeURIComponent(systemId)}`,
 		{ method: "DELETE" },
 	);

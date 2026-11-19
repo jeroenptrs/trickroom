@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { ComponentClassMerge } from "../utils/class-merge";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 import { type ProjectQueryScope, withProjectQueryScope } from "./project-scope";
 
 export type TailwindClassMergeResponse = ComponentClassMerge & {
@@ -31,7 +32,7 @@ export const tailwindClassMergeQueryOptions = (
 		),
 		queryFn: async ({ signal }) => {
 			const query = systemId ? `?systemId=${encodeURIComponent(systemId)}` : "";
-			const response = await fetch(
+			const response = await apiFetch(
 				`/api/trickroom/tailwind/class-merge${query}`,
 				{
 					signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),

@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { McpToolGroupId } from "../mcp/tool-groups";
 import { readJsonOrThrow } from "../utils/readJsonOrThrow";
+import { apiFetch } from "../utils/tab-location";
 
 export type McpToolGroupSetting = {
 	id: McpToolGroupId;
@@ -15,11 +16,13 @@ export type McpToolGroupSettingsResponse = {
 };
 
 const fetchMcpToolGroupSettings = async () => {
-	const response = await fetch("/api/trickroom/settings/mcp");
+	const response = await apiFetch("/api/trickroom/settings/mcp");
 	return readJsonOrThrow<McpToolGroupSettingsResponse>(response);
 };
 
-export const mcpToolGroupSettingsQueryKey = ["trickroom-mcp-tool-group-settings"];
+export const mcpToolGroupSettingsQueryKey = [
+	"trickroom-mcp-tool-group-settings",
+];
 
 export const mcpToolGroupSettingsQueryOptions = () =>
 	queryOptions({
@@ -30,7 +33,7 @@ export const mcpToolGroupSettingsQueryOptions = () =>
 export const updateMcpToolGroupSettings = async (
 	toolGroups: Partial<Record<McpToolGroupId, boolean>>,
 ) => {
-	const response = await fetch("/api/trickroom/settings/mcp", {
+	const response = await apiFetch("/api/trickroom/settings/mcp", {
 		method: "PUT",
 		headers: {
 			"Content-Type": "application/json",

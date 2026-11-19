@@ -340,6 +340,61 @@ export const upsertProjectLocation = async ({
 	});
 };
 
+/**
+ * Adds locations found on disk (other git worktrees of a registered project)
+ * in one locked write. A root that is already registered is left as it is,
+ * and the last-active pointers do not move. Returns the locations added.
+ */
+export const registerDiscoveredProjectLocations = async ({
+	trickroomHome = resolveTrickroomHome(),
+	locations,
+	now = new Date().toISOString(),
+}: {
+	trickroomHome?: string;
+	locations: readonly { projectId: string; root: string; name: string }[];
+	now?: string;
+}): Promise<ProjectLocationRef[]> => {
+	if (locations.length === 0) {
+		return [];
+	}
+
+	return withProjectRegistryLock(trickroomHome, async () => {
+		const registry = await readProjectRegistry(trickroomHome);
+		const knownRoots = new Set(
+			registry.locations.map((location) => path.resolve(location.root)),
+		);
+		const added: ProjectLocationRef[] = [];
+		for (const candidate of locations) {
+			const root = path.resolve(candidate.root);
+			if (knownRoots.has(root)) {
+				continue;
+			}
+			knownRoots.add(root);
+			added.push({
+				locationId: `loc_${randomUUID()}`,
+				projectId: candidate.projectId,
+				root,
+				name: candidate.name,
+				lastOpenedAt: now,
+			});
+		}
+		if (added.length === 0) {
+			return [];
+		}
+
+		await writeProjectRegistry(
+			{
+				...registry,
+				locations: [...registry.locations, ...added].sort((a, b) =>
+					b.lastOpenedAt.localeCompare(a.lastOpenedAt),
+				),
+			},
+			trickroomHome,
+		);
+		return added;
+	});
+};
+
 export const deleteProjectLocation = async ({
 	trickroomHome = resolveTrickroomHome(),
 	locationId,
@@ -369,6 +424,41 @@ export const deleteProjectLocation = async ({
 
 		await writeProjectRegistry(nextRegistry, trickroomHome);
 		return { registry: nextRegistry, location };
+	});
+
+/**
+ * Removes every location of one project in a single locked write, so
+ * worktree discovery cannot register a sibling back between two removals.
+ * Returns null when the project has no location.
+ */
+export const deleteProjectLocations = async ({
+	trickroomHome = resolveTrickroomHome(),
+	projectId,
+}: {
+	trickroomHome?: string;
+	projectId: string;
+}) =>
+	withProjectRegistryLock(trickroomHome, async () => {
+		const registry = await readProjectRegistry(trickroomHome);
+		const removed = registry.locations.filter(
+			(location) => location.projectId === projectId,
+		);
+		if (removed.length === 0) {
+			return null;
+		}
+
+		const nextRegistry = withActivePointers(
+			{
+				...registry,
+				locations: registry.locations.filter(
+					(location) => location.projectId !== projectId,
+				),
+			},
+			registry.lastActiveProjectId === projectId ? {} : registry,
+		);
+
+		await writeProjectRegistry(nextRegistry, trickroomHome);
+		return { registry: nextRegistry, locations: removed };
 	});
 
 export const updateProjectLocationName = async ({

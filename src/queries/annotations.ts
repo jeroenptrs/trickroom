@@ -7,6 +7,7 @@ import type {
 	AnnotationTarget,
 	AnnotationView,
 } from "../services/annotations.types";
+import { apiFetch } from "../utils/tab-location";
 import {
 	deliverAnnotationScope,
 	parseAnnotationScope,
@@ -82,7 +83,7 @@ const post = async <T>(
 	expectedScope: AnnotationScope | null | undefined,
 ): Promise<T> =>
 	readAnnotationJson<T>(
-		await fetch(path, {
+		await apiFetch(path, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify(expectedScope ? { ...body, expectedScope } : body),
@@ -163,7 +164,7 @@ export const fetchAnnotationList = async (
 	const params = new URLSearchParams(annotationContainerParams(container));
 	if (branch !== "current") params.set("branch", branch);
 	return readAnnotationJson<AnnotationListResponse>(
-		await fetch(`${baseUrl}?${params.toString()}`, signal ? { signal } : {}),
+		await apiFetch(`${baseUrl}?${params.toString()}`, signal ? { signal } : {}),
 	);
 };
 
@@ -198,7 +199,7 @@ export const annotationCountsQueryOptions = (
 		queryFn: async ({ signal }) =>
 			(
 				await readAnnotationJson<{ designs: AnnotationDesignCounts }>(
-					await fetch(`${baseUrl}/counts`, { signal }),
+					await apiFetch(`${baseUrl}/counts`, { signal }),
 				)
 			).designs,
 		retry: false,
@@ -221,7 +222,7 @@ export const fetchAnnotation = async (
 		annotation: AnnotationView;
 		scope?: unknown;
 	}>(
-		await fetch(
+		await apiFetch(
 			annotationUrl(annotationId, container),
 			signal ? { signal } : {},
 		),
@@ -433,7 +434,7 @@ export const fetchOpenRound = async (
 		scope?: unknown;
 		round: OpenRound | null;
 	}>(
-		await fetch(
+		await apiFetch(
 			`${baseUrl}/rounds?${hint(container)}`,
 			signal ? { signal } : {},
 		),

@@ -3,6 +3,7 @@ import type {
 	EditorFocusAck,
 	EditorFocusEvent,
 } from "../services/editor-channel.types";
+import { apiFetch, withTabLocation } from "../utils/tab-location";
 
 // Browser side of the editor channel: the tab's identity and the requests it
 // sends. The server learns which tabs exist from their SSE streams.
@@ -19,7 +20,9 @@ const createClientId = () =>
 export const editorClientId = createClientId();
 
 export const getProjectEventsUrl = () =>
-	`/api/trickroom/events?clientId=${encodeURIComponent(editorClientId)}`;
+	withTabLocation(
+		`/api/trickroom/events?clientId=${encodeURIComponent(editorClientId)}`,
+	);
 
 const createSignal = <T>() => {
 	const listeners = new Set<(value: T) => void>();
@@ -80,7 +83,7 @@ export const parseEditorFocusEvent = (
 };
 
 export const postEditorContext = (report: EditorContextReport) =>
-	fetch("/api/trickroom/editor-context", {
+	apiFetch("/api/trickroom/editor-context", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(report),
@@ -92,7 +95,7 @@ export const postEditorContext = (report: EditorContextReport) =>
 	);
 
 export const postEditorFocusAck = (ack: Omit<EditorFocusAck, "clientId">) =>
-	fetch("/api/trickroom/editor-focus/ack", {
+	apiFetch("/api/trickroom/editor-focus/ack", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ ...ack, clientId: editorClientId }),

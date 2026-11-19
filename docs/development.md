@@ -78,6 +78,7 @@ Serve flags are:
 | `--public-host <host>` | Host to show in URLs instead of the bind host; see [Public host](#public-host). |
 | `--port <port>` | Bind to a port; use `0` to select an available port. |
 | `--token <token>` | Enable HTTP session authentication with an explicit token. |
+| `--stable-token` | Enable HTTP session authentication with a token kept in `$TRICKROOM_HOME/server-token`; see [Running as a service](#running-as-a-service). |
 | `--no-open` | Do not launch a browser; retain human status output. |
 | `--silent` | Do not launch a browser or print human status output. |
 
@@ -98,6 +99,34 @@ node bin/trickroom.js serve /path/to/project --host 0.0.0.0 --no-open
 ```
 
 The CLI generates a token when one is not already configured. Opening the ready record's bootstrap URL once stores an HTTP-only cookie and redirects to a URL without the token. An explicit token can be supplied through `--token` or `TRICKROOM_SESSION_TOKEN`.
+
+### Running as a service
+
+To keep one Trickroom running for every project on a machine, start `serve` without a project path. It opens on the home screen, which lists each registered project with its checkouts (clones and git worktrees) by branch. Worktrees that are created or removed while it runs appear and disappear without a reload; see [Workspace: Projects And Checkouts](architecture.md#workspace-projects-and-checkouts).
+
+```sh
+trickroom serve --stable-token --no-open
+```
+
+`--stable-token` creates a token on the first start, stores it in `$TRICKROOM_HOME/server-token` (mode `0600`), and reuses it on later starts. A restart therefore keeps browser sessions signed in, where a generated token would change. Session authentication is then on for a loopback bind too, which is what a reverse proxy in front of the server connects to. `--token` and `TRICKROOM_SESSION_TOKEN` win over the stored token. To sign every browser out, delete the file and restart.
+
+A systemd user unit, with the public URL taken from `server.publicUrl` in the settings file:
+
+```ini
+[Unit]
+Description=Trickroom
+
+[Service]
+ExecStart=/usr/bin/env node /path/to/trickroom/bin/trickroom.js serve --stable-token --silent
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+```
+
+The ready record on stdout (`journalctl --user -u trickroom`) has the bootstrap URL with the token. Open it once per browser.
+
+Each browser tab holds its own checkout under `/p/<locationId>/`, so one server shows several projects and branches at once. `/` is the home screen.
 
 ### Public host
 

@@ -108,6 +108,21 @@ describe("editor server selection", () => {
 		).toMatchObject({ status: "browser_on_other_project" });
 	});
 
+	it("picks a tab on the project when the server's active project is another", () => {
+		const selection = selectEditorServer("proj_1", [
+			serverContext(1, "proj_2", [
+				client("tab-other", { projectId: "proj_2" }),
+				client("tab-mine"),
+			]),
+		]);
+		expect(selection).toMatchObject({ status: "ok" });
+		expect(
+			"clients" in selection
+				? selection.clients.map((entry) => entry.clientId)
+				: [],
+		).toEqual(["tab-mine"]);
+	});
+
 	it("reports stale when the project's server does not answer", () => {
 		expect(
 			selectEditorServer("proj_1", [serverContext(1, "proj_1", null)]),
