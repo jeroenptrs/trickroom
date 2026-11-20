@@ -147,7 +147,7 @@ function WorkspaceModeToggle() {
 	return (
 		<fieldset
 			className="flex gap-px border-0 p-0 min-inline-0"
-			aria-label="Stage mode"
+			aria-label="Canvas mode"
 		>
 			{STAGE_MODE_OPTIONS.map(({ value, label, Icon, title }) => {
 				const isSelected = mode === value;
@@ -566,7 +566,7 @@ function ExportControl() {
 			);
 		} catch (error) {
 			console.error(error);
-			toast.error(`Could not export ${design.name}`, {
+			toast.error(`${design.name} not exported`, {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		} finally {
@@ -586,7 +586,7 @@ function ExportControl() {
 						disabled={busy}
 						className="flex h-7 items-center gap-1 px-2 py-0 text-[11px]"
 						aria-label="Export"
-						title="Export as a Trickroom Artifact"
+						title="Export as HTML"
 					>
 						<Download className="size-3.5 shrink-0" />
 						<span>Export</span>

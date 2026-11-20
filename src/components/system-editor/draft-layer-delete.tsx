@@ -70,11 +70,11 @@ export function DraftLayerDeleteDialog() {
 				if (!open) closeDraftLayerDelete();
 			}}
 			tone="destructive"
-			title={target ? `Delete layer ${target.name}` : ""}
+			title={target ? `Delete layer "${target.name}"?` : ""}
 			description={
 				inner > 0
-					? `${inner} ${inner === 1 ? "layer is" : "layers are"} deleted with it. This can't be undone.`
-					: "This can't be undone."
+					? `Deletes ${inner} ${inner === 1 ? "layer" : "layers"}. No undo.`
+					: "No undo."
 			}
 			icon={<Trash2 className="size-4" aria-hidden="true" />}
 			actionLabel="Delete layer"

@@ -162,7 +162,7 @@ export const ruleRowSeverity = (
 		? {
 				severity: configured,
 				fromReport: false,
-				title: "No findings in this report; the severity lint.json sets",
+				title: "No findings in this report. Severity set in lint.json.",
 			}
 		: null;
 };
@@ -192,7 +192,7 @@ export const LINT_COVERAGE_STATES: Array<{
 		label: "Published",
 		short: "P",
 		gap: "Not published",
-		hint: "Publish a version in the Components page; drafts are never linted.",
+		hint: "Publish a version in the Components page. Drafts are never linted.",
 		unknown: "Unknown.",
 	},
 	{
@@ -224,7 +224,7 @@ export const LINT_COVERAGE_STATES: Array<{
 		label: "Used in designs",
 		short: "D",
 		gap: "Unused in designs",
-		hint: "No Design places an instance of this component.",
+		hint: "No design places an instance of this component.",
 		unknown: "No design results in this report. Run lint to include designs.",
 	},
 ];
@@ -581,7 +581,7 @@ export const buildHeatScale = (values: readonly number[]): LintHeatScale => {
 		if (upper >= lower) {
 			legend.push({
 				step: (index + 1) as LintHeatStep,
-				label: upper === lower ? `${upper}` : `${lower}–${upper}`,
+				label: upper === lower ? `${upper}` : `${lower} to ${upper}`,
 			});
 			lower = upper + 1;
 		}

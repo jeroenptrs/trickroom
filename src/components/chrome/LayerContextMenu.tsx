@@ -79,7 +79,7 @@ function LayerContextMenu({
 			updateRecipeInstance(id);
 			toast.success("Recipe updated");
 		} catch (error) {
-			toast.error("Could not update the recipe", {
+			toast.error("Recipe not updated", {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		}
@@ -138,7 +138,7 @@ function LayerContextMenu({
 			navigate(`/design/${designUuid}`);
 		},
 		onError: (error) => {
-			toast.error(`Could not extract ${layerName} to a new design`, {
+			toast.error(`${layerName} not extracted to a new design`, {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},
@@ -166,7 +166,7 @@ function LayerContextMenu({
 							className={item()}
 							onClick={() => setExtractComponentOpen(true)}
 						>
-							<span className="truncate">Extract as component</span>
+							<span className="truncate">Extract as component…</span>
 						</ContextMenu.Item>
 						{isRecipeOwned ? (
 							<>
@@ -175,14 +175,14 @@ function LayerContextMenu({
 										className={item()}
 										onClick={() => setRecipeConfirm("update")}
 									>
-										<span className="truncate">Update recipe</span>
+										<span className="truncate">Update recipe…</span>
 									</ContextMenu.Item>
 								) : null}
 								<ContextMenu.Item
 									className={item()}
 									onClick={() => setRecipeConfirm("detach")}
 								>
-									<span className="truncate">Detach recipe</span>
+									<span className="truncate">Detach recipe…</span>
 								</ContextMenu.Item>
 							</>
 						) : null}
@@ -206,7 +206,7 @@ function LayerContextMenu({
 				onOpenChange={(open) => {
 					if (!open) setRecipeConfirm(null);
 				}}
-				title="Update recipe"
+				title="Update recipe?"
 				description="The structure can change. Settings and slot content are kept where they still fit."
 				icon={<RefreshCw className="size-4" aria-hidden="true" />}
 				actionLabel="Update recipe"
@@ -218,8 +218,8 @@ function LayerContextMenu({
 					if (!open) setRecipeConfirm(null);
 				}}
 				tone="destructive"
-				title="Detach recipe"
-				description="The layers stay. They no longer update with the recipe. This can't be undone."
+				title="Detach recipe?"
+				description="The layers stay. They no longer update with the recipe. No undo."
 				icon={<Unlink className="size-4" aria-hidden="true" />}
 				actionLabel="Detach recipe"
 				onAction={handleDetachRecipe}

@@ -20,14 +20,14 @@ export function NoBoards({ className }: { className?: string }) {
 		<EmptyState
 			size="sm"
 			className={className}
-			title="No boards yet"
+			title="No boards"
 			action={
 				<Button
 					variant="filled"
 					className="px-3 py-1.5 text-xs"
 					onClick={addBoard}
 				>
-					Add a board
+					Add board
 				</Button>
 			}
 		/>

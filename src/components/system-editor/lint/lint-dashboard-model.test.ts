@@ -151,9 +151,9 @@ describe("lint dashboard heat scale", () => {
 		expect(scale.step(500)).toBe(4);
 		expect(scale.legend.map((entry) => entry.label)).toEqual([
 			"0",
-			"1–2",
-			"3–4",
-			"5–8",
+			"1 to 2",
+			"3 to 4",
+			"5 to 8",
 			"9+",
 		]);
 	});
@@ -407,7 +407,7 @@ describe("lint dashboard rule row severity", () => {
 		).toEqual({
 			severity: "error",
 			fromReport: false,
-			title: "No findings in this report; the severity lint.json sets",
+			title: "No findings in this report. Severity set in lint.json.",
 		});
 		expect(
 			ruleRowSeverity({ errors: 0, warnings: 0, info: 0 }, null),

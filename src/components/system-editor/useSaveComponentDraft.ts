@@ -176,7 +176,7 @@ export function useSaveComponentDraft({
 		onMutate: () => setSaveError(null),
 		onError: async (error) => {
 			setSaveError(
-				error instanceof Error ? error.message : "Could not save the draft.",
+				error instanceof Error ? error.message : "Draft not saved.",
 			);
 			if (componentId) {
 				await invalidateSystemComponents(

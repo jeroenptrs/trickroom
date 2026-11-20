@@ -186,7 +186,7 @@ export function CreateSystemDialog({
 							</div>
 							{errorMessage ? (
 								<Alert variant="panel" tone="danger">
-									Could not add {systemName.trim()}: {errorMessage}
+									{systemName.trim()} not added: {errorMessage}
 								</Alert>
 							) : null}
 						</div>

@@ -198,13 +198,13 @@ function ComponentMapField({
 			))}
 			<div className="flex items-center gap-2">
 				<Select
-					aria-label={`${label}: add a component`}
+					aria-label={`${label}: choose component`}
 					variant="outlined"
 					className="w-auto"
 					value={adding}
 					onChange={(event) => setAdding(event.target.value)}
 				>
-					<option value="">Add a component…</option>
+					<option value="">Choose component</option>
 					{available.map((slug) => (
 						<option key={slug} value={slug}>
 							{slug}
@@ -370,7 +370,7 @@ function OptionField({
 		control = (
 			<div className="flex flex-col gap-1">
 				<Text tone="faint" className="text-[11px]">
-					The stored value does not have the documented shape; it is kept as is.
+					The stored value does not have the documented shape. It is kept as is.
 				</Text>
 				<JsonBlock value={value} />
 			</div>
@@ -642,13 +642,13 @@ function ComponentModulesEditor({
 			))}
 			<div className="flex items-center gap-2">
 				<Select
-					aria-label="Add a wrapper override"
+					aria-label="Choose wrapper override"
 					variant="outlined"
 					className="w-auto"
 					value={adding}
 					onChange={(event) => setAdding(event.target.value)}
 				>
-					<option value="">Add a component…</option>
+					<option value="">Choose component</option>
 					{available.map((slug) => (
 						<option key={slug} value={slug}>
 							{slug}
@@ -786,7 +786,7 @@ export function LintConfigEditor({
 				<span className="font-mono text-xs text-slate-900">{data.path}</span>
 				{data.present ? null : (
 					<Text variant="meta" render={<p />}>
-						Not created yet. Every rule runs at its default severity with the
+						Not created. Every rule runs at its default severity with the
 						default source globs. Saving creates the file.
 					</Text>
 				)}
@@ -794,7 +794,7 @@ export function LintConfigEditor({
 					<div className="flex flex-col gap-2">
 						<Alert tone="danger">
 							The stored lint.json is invalid, so lint runs fail until it is
-							fixed. The form starts from the defaults; saving replaces the
+							fixed. The form starts from the defaults. Saving replaces the
 							file.
 						</Alert>
 						<ul className="flex flex-col gap-1 font-mono text-[11px] text-red-800">
@@ -1002,7 +1002,7 @@ export function LintConfigEditor({
 							})
 						}
 					>
-						{saveMutation.isPending ? "Saving" : "Save lint.json"}
+						{saveMutation.isPending ? "Saving…" : "Save lint.json"}
 					</Button>
 				</div>
 			</div>

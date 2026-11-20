@@ -115,7 +115,7 @@ describe("getSystemMetadata", () => {
 		};
 
 		expect(getSystemMetadata(result, "src/index.css")).toEqual([
-			"1 stylesheet changed since last review",
+			"1 CSS file changed since last review",
 		]);
 	});
 

@@ -76,7 +76,7 @@ export function StagePreviewDarkModeToggle() {
 					</Text>
 					<p className="mt-0.5 text-[11px] text-slate-500">
 						Adds a temporary <code className="font-mono">dark</code> class on the
-						stage container. Not saved to the file.
+						canvas container. Not saved to the file.
 					</p>
 				</div>
 				<Switch

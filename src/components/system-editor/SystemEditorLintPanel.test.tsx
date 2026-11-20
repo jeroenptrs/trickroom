@@ -277,7 +277,9 @@ describe("System editor lint page", () => {
 	it("flags a stale report when the system's contract changed", () => {
 		const html = renderLintPage({ currentContractHash: "sha256:now" });
 		expect(html).toContain("data-lint-stale");
-		expect(html).toContain("its contract hash differs");
+		expect(html).toContain(
+			"The system changed since this report was generated.",
+		);
 	});
 
 	it("lists the kinds the run adopted into the baseline", () => {
@@ -317,7 +319,7 @@ describe("System editor lint page", () => {
 
 	it("shows the CLI command and the run button before the first run", () => {
 		const html = renderLintPage({ report: null });
-		expect(html).toContain("No lint report yet");
+		expect(html).toContain("No lint report");
 		expect(html).toContain("trickroom lint --system &quot;Core System&quot;");
 		expect(html).toContain("Run lint");
 	});
@@ -508,7 +510,7 @@ describe("System editor lint rule configuration", () => {
 				config: { version: 1 },
 			}),
 		});
-		expect(absent).toContain("Not created yet");
+		expect(absent).toContain("Not created");
 
 		const invalid = renderLintPage({
 			state: { view: "config" },

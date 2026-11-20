@@ -138,7 +138,7 @@ describe("system attention toast helpers", () => {
 describe("system attention toast copy", () => {
 	it("names a single system in the title", () => {
 		expect(getSystemAttentionToastCopy("issues", ["Site"])).toEqual({
-			title: "Site could not sync tokens",
+			title: "Site tokens not synced",
 		});
 		expect(getSystemAttentionToastCopy("review", ["Site"])).toEqual({
 			title: "Site has token changes to review",
@@ -153,8 +153,8 @@ describe("system attention toast copy", () => {
 		expect(
 			getSystemAttentionToastCopy("issues", ["A", "B", "C", "D", "E"]),
 		).toEqual({
-			title: "5 systems could not sync tokens",
-			description: "A, B, C and 2 more",
+			title: "Tokens not synced for 5 systems",
+			description: "A, B, C, and 2 more",
 		});
 	});
 });

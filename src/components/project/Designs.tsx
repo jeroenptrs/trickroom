@@ -162,7 +162,7 @@ export function Designs({
 				{designsQuery.isError ? (
 					<div className="mx-4 my-3 flex items-start gap-2">
 						<Alert variant="panel" className="min-w-0 flex-1">
-							Could not load designs: {designsErrorMessage}
+							Designs not loaded: {designsErrorMessage}
 						</Alert>
 						<Button
 							variant="outlined"
@@ -176,18 +176,13 @@ export function Designs({
 				) : null}
 				{createDesignMutation.isError ? (
 					<Alert variant="panel" className="mx-4 my-3">
-						Could not create the design: {createErrorMessage}
+						Design not created: {createErrorMessage}
 					</Alert>
 				) : null}
 				{designsQuery.isSuccess ? (
 					<div className="divide-y divide-slate-100">
 						{designs.length === 0 ? (
-							<EmptyState
-								icon={Image}
-								size="sm"
-								title="No designs yet"
-								description="Create one with New design."
-							/>
+							<EmptyState icon={Image} size="sm" title="No designs" />
 						) : filteredDesigns.length === 0 ? (
 							<EmptyState size="compact" title="No matching designs" />
 						) : (

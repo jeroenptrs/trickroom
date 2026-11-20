@@ -71,7 +71,7 @@ export function getSystemMetadata(
 			reviewChanges: system.data.reviewChanges,
 			baselineDiffs: system.data.baselineDiffs ?? { color: baselineDiff },
 		});
-		const stylesheets = `${counts.stylesheets} ${pluralize(counts.stylesheets, "stylesheet")} changed`;
+		const stylesheets = `${counts.stylesheets} ${pluralize(counts.stylesheets, "CSS file")} changed`;
 		if (
 			counts.sinceLastReview &&
 			counts.total === 0 &&
@@ -239,7 +239,7 @@ export function Systems({
 						<EmptyState
 							icon={Palette}
 							size="sm"
-							title="No systems yet"
+							title="No systems"
 							description="Add one to use your tokens."
 						/>
 					) : (

@@ -303,7 +303,7 @@ export function TokenDomainPills({
 
 export function TokenDomainSectionList({
 	section,
-	emptyMessage = "No tokens in this section.",
+	emptyMessage = "No tokens",
 	isCollapsed,
 	onToggle,
 }: {

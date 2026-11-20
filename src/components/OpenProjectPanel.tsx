@@ -43,10 +43,7 @@ export function OpenProjectPanel() {
 					tone="foreground"
 					className="block text-2xl tracking-tight"
 				>
-					Open a project
-				</Text>
-				<Text tone="muted" className="mt-1 block max-w-sm text-sm">
-					Pick up where you left off, or point Trickroom at a folder to begin.
+					Open project
 				</Text>
 			</div>
 
@@ -108,7 +105,7 @@ export function OpenProjectPanel() {
 
 				{openMutation.isError ? (
 					<Alert variant="panel">
-						Could not open {openMutation.variables}: {openError}
+						{openMutation.variables} not opened: {openError}
 					</Alert>
 				) : null}
 			</form>

@@ -43,13 +43,13 @@ function ProjectGroup({
 				>
 					{project.name}
 				</Text>
-				<Tooltip content="Remove from this list">
+				<Tooltip content="Remove from list">
 					<Button
 						variant="ghost"
 						className="shrink-0 items-center justify-center px-2"
 						disabled={disabled}
 						onClick={onRemove}
-						aria-label={`Remove ${project.name} from this list`}
+						aria-label={`Remove ${project.name} from list`}
 					>
 						<X className="size-3.5" aria-hidden="true" />
 					</Button>
@@ -95,7 +95,7 @@ export function HomeShell() {
 		onSuccess: (response) => openCheckoutInTab(response.project.locationId),
 		onError: (error, target) => {
 			toast.error(
-				`Could not open ${target.name} on ${getCheckoutLabel(target.checkout)}`,
+				`${target.name} on ${getCheckoutLabel(target.checkout)} not opened`,
 				{ description: error instanceof Error ? error.message : undefined },
 			);
 		},
@@ -113,7 +113,7 @@ export function HomeShell() {
 			toast.success(`${project.name} removed`);
 		},
 		onError: (error, project) => {
-			toast.error(`Could not remove ${project.name}`, {
+			toast.error(`${project.name} not removed`, {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},
@@ -152,11 +152,11 @@ export function HomeShell() {
 								</div>
 							) : workspaceQuery.isError ? (
 								<Text tone="danger" className="mt-1 text-xs" role="alert">
-									Could not load your projects
+									Projects not loaded
 								</Text>
 							) : projects.length === 0 ? (
 								<Text tone="faint" className="mt-1 text-xs">
-									No projects yet
+									No projects
 								</Text>
 							) : (
 								<div className="-mx-2 flex flex-col gap-3">

@@ -307,7 +307,7 @@ function SystemAssetsToolbar({
 									aria-hidden="true"
 								/>
 							) : null}
-							{isAddingAsset ? "Adding" : "Add"}
+							{isAddingAsset ? "Adding…" : "Add"}
 						</Button>
 					</div>
 					<Text variant="meta" render={<p />}>
@@ -379,8 +379,8 @@ export function SystemEditorAssetsPanel({
 		onError: (error) => {
 			setAssetActionError(
 				error instanceof Error
-					? `Could not add the asset: ${error.message}`
-					: "Could not add the asset.",
+					? `Asset not added: ${error.message}`
+					: "Asset not added.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -484,7 +484,7 @@ export function SystemEditorAssetsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemAssetsToolbar
 					countLabel={null}
-					filteredCountLabel="Assets could not be loaded"
+					filteredCountLabel="Assets not loaded"
 					filter={assetFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupAssetsByFolder}
@@ -498,7 +498,7 @@ export function SystemEditorAssetsPanel({
 					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
 				>
 					<span>
-						Could not load the assets: {(assetsQuery.error as Error).message}
+						Assets not loaded: {(assetsQuery.error as Error).message}
 					</span>
 					<Button
 						type="button"
@@ -539,9 +539,7 @@ export function SystemEditorAssetsPanel({
 			{assets.length === 0 ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
 					<FileImage className="size-6 text-slate-400" aria-hidden="true" />
-					<p className="mt-3 text-sm font-medium text-slate-900">
-						No assets yet
-					</p>
+					<p className="mt-3 text-sm font-medium text-slate-900">No assets</p>
 					<p className="mt-1 max-w-md text-sm text-slate-500">
 						Add an image by its path to use it in designs linked to this system.
 					</p>

@@ -262,12 +262,12 @@ export function ComponentAnnotationsPanel({
 					{ kind: "system", systemId },
 					projectScope,
 				);
-				toast.success("Saved as memory note", {
+				toast.success("Memory note saved", {
 					id: `annotation-memory-${annotation.id}`,
 				});
 				return true;
 			} catch (error) {
-				toast.error("Could not save the memory note", {
+				toast.error("Memory note not saved", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 				return false;
@@ -389,7 +389,7 @@ export function ComponentAnnotationsPanel({
 				{status === "error" ? (
 					<RetryError
 						className="px-3 pt-3"
-						message="Could not load annotations"
+						message="Annotations not loaded"
 						retrying={listFetching}
 						onRetry={() =>
 							void queryClient.invalidateQueries({ queryKey: listQueryKey })

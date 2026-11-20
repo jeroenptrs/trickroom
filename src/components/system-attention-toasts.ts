@@ -65,7 +65,7 @@ const listNames = (names: string[]) => {
 		return names.join(", ");
 	}
 	const rest = names.length - MAX_LISTED_NAMES;
-	return `${names.slice(0, MAX_LISTED_NAMES).join(", ")} and ${rest} more`;
+	return `${names.slice(0, MAX_LISTED_NAMES).join(", ")}, and ${rest} more`;
 };
 
 /**
@@ -80,14 +80,14 @@ export const getSystemAttentionToastCopy = (
 		return {
 			title:
 				kind === "issues"
-					? `${names[0]} could not sync tokens`
+					? `${names[0]} tokens not synced`
 					: `${names[0]} has token changes to review`,
 		};
 	}
 	return {
 		title:
 			kind === "issues"
-				? `${names.length} systems could not sync tokens`
+				? `Tokens not synced for ${names.length} systems`
 				: `${names.length} systems have token changes to review`,
 		description: listNames(names),
 	};

@@ -256,7 +256,7 @@ export function MemoryNotesPanel({
 					{memoryQuery.isError ? (
 						<div className="flex items-start gap-2">
 							<Alert variant="panel" tone="danger" className="min-w-0 flex-1">
-								Could not load notes: {loadError}
+								Notes not loaded: {loadError}
 							</Alert>
 							<Button
 								variant="outlined"
@@ -284,7 +284,7 @@ export function MemoryNotesPanel({
 						<EmptyState
 							size="sm"
 							icon={NotebookPen}
-							title="No notes yet"
+							title="No notes"
 							description="Notes record intent, conventions, and decisions for you and for agents."
 						/>
 					) : null}
@@ -329,14 +329,18 @@ export function MemoryNotesPanel({
 						deleteMutation.reset();
 					}
 				}}
-				title="Delete note"
-				description="This can't be undone."
+				title={
+					deleteTarget?.title
+						? `Delete note "${deleteTarget.title}"?`
+						: "Delete note?"
+				}
+				description="No undo."
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
 				actionLabel={deleteMutation.isPending ? "Deleting…" : "Delete note"}
 				actionDisabled={deleteMutation.isPending}
 				tone="destructive"
-				error={deleteError ? `Could not delete the note: ${deleteError}` : null}
+				error={deleteError ? `Note not deleted: ${deleteError}` : null}
 				onAction={() => {
 					if (deleteTarget) {
 						deleteMutation.mutate(deleteTarget);

@@ -92,12 +92,12 @@ describe("registry picker sections", () => {
 		const sections = getRegistryPickerSections("base-ui", "");
 
 		expect(sections.map((section) => section.title)).toEqual([
-			"Components",
+			"Elements",
 			"Recipes",
 		]);
 		expect(
 			sections
-				.find((section) => section.title === "Components")
+				.find((section) => section.title === "Elements")
 				?.items.some(
 					(item) =>
 						item.type === "component" && item.component === "avatar.root",

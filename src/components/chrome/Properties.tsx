@@ -454,7 +454,7 @@ function AssetPicker({
 				<Skeleton className="h-5 w-full" />
 			) : systemId && assetsQuery.isError ? (
 				<RetryError
-					message="Could not load assets"
+					message="Assets not loaded"
 					reason={errorReason(assetsQuery.error)}
 					retrying={assetsQuery.isFetching}
 					onRetry={() => void assetsQuery.refetch()}
@@ -529,7 +529,7 @@ function IconPicker({
 				<Skeleton className="h-5 w-full" />
 			) : systemId && iconsQuery.isError ? (
 				<RetryError
-					message="Could not load icons"
+					message="Icons not loaded"
 					reason={errorReason(iconsQuery.error)}
 					retrying={iconsQuery.isFetching}
 					onRetry={() => void iconsQuery.refetch()}
@@ -767,9 +767,9 @@ const KBD_MAP: readonly { key: string; label: string }[] = [
 	{ key: formatShortcut(["Mod", "Shift", "↑ / ↓"]), label: "Move layer" },
 	{ key: formatShortcut(["Mod", "K"]), label: "Command menu" },
 	{ key: formatShortcut(["Mod", "S"]), label: "Save" },
-	{ key: formatShortcut(["Alt", "1 / 2 / 3"]), label: "Focus a panel" },
-	{ key: formatShortcut(["Alt", "["]), label: "Toggle layers" },
-	{ key: formatShortcut(["Alt", "]"]), label: "Toggle properties" },
+	{ key: formatShortcut(["Alt", "1 / 2 / 3"]), label: "Focus panel" },
+	{ key: formatShortcut(["Alt", "["]), label: "Toggle layers panel" },
+	{ key: formatShortcut(["Alt", "]"]), label: "Toggle inspector" },
 	{ key: formatShortcut(["Alt", "C"]), label: "Toggle annotation mode" },
 	{ key: formatShortcut(["Mod", "["]), label: "Back to project" },
 ];
@@ -821,7 +821,7 @@ export function Properties({ designId }: { designId?: string } = {}) {
 							<DesignSystemPicker />
 							{designId ? <DesignLintSummary designId={designId} /> : null}
 							<Text variant="meta" render={<p />}>
-								Turn on Select to select layers on the stage.
+								Turn on Select to select layers on the canvas.
 							</Text>
 							<EmptyStateKbdMap />
 						</div>

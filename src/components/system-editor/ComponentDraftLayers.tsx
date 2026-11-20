@@ -1243,7 +1243,7 @@ export function ComponentDraftLayers({
 						variant="block"
 						value={componentQuery}
 						aria-label="Search elements"
-						placeholder="Search elements"
+						placeholder="Search elements…"
 						onChange={(event) => setComponentQuery(event.target.value)}
 					/>
 					<Text variant="meta" render={<div />} className="px-1">
@@ -1270,7 +1270,7 @@ export function ComponentDraftLayers({
 							</Text>
 							{pickerItems.length === 0 ? (
 								<Text variant="meta" render={<div />} className="px-1">
-									No matches
+									No matching elements
 								</Text>
 							) : (
 								pickerItems.map((item) => (

@@ -179,7 +179,7 @@ function RunError({ error }: { error: Error }) {
 		error instanceof SystemLintRequestError ? error.diagnostics : [];
 	return (
 		<Card edge="inset" tone="danger" className="flex flex-col gap-2 px-4 py-3">
-			<Alert tone="danger">Lint could not complete: {error.message}</Alert>
+			<Alert tone="danger">Lint not run: {error.message}</Alert>
 			{diagnostics.length > 0 ? (
 				<ul className="flex flex-col gap-1 text-[11px]">
 					{diagnostics.map((diagnostic) => (
@@ -266,7 +266,7 @@ export function SystemEditorLintPanel({
 			/>
 		) : configQuery.isError ? (
 			<LintLoadError
-				title="Could not load lint.json"
+				title="lint.json not loaded"
 				error={configQuery.error}
 				onRetry={() => void configQuery.refetch()}
 			/>
@@ -279,7 +279,7 @@ export function SystemEditorLintPanel({
 		body = (
 			<EmptyState
 				icon={ShieldCheck}
-				title="No lint report yet"
+				title="No lint report"
 				description="Lint checks how the app and your designs use this system. The first run sets the baseline."
 			>
 				<div className="flex flex-col items-center gap-3">
@@ -293,7 +293,7 @@ export function SystemEditorLintPanel({
 	} else if (reportQuery.isError || !report) {
 		body = (
 			<LintLoadError
-				title="Could not read the lint report."
+				title="Lint report not read"
 				error={reportQuery.error}
 				hint="Run lint to write a new one."
 				onRetry={() => void reportQuery.refetch()}
@@ -417,9 +417,8 @@ export function SystemEditorLintPanel({
 				{stale ? (
 					<div data-lint-stale>
 						<Alert tone="warning">
-							The system changed since this report was generated (its contract
-							hash differs). The numbers below describe the previous state; run
-							lint to refresh them.
+							The system changed since this report was generated. The numbers
+							below describe the previous state. Run lint to refresh them.
 						</Alert>
 					</div>
 				) : null}

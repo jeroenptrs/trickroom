@@ -153,14 +153,13 @@ export function McpToolSettingsDialog({
 		) as Partial<Record<McpToolGroupId, boolean>>;
 
 		const groupLabel =
-			currentGroups.find((group) => group.id === groupId)?.label ??
-			"the MCP tools";
+			currentGroups.find((group) => group.id === groupId)?.label ?? "MCP tools";
 		updateMutation.mutate(nextPatch, {
 			onError: (error) => {
 				setActionError(
 					error instanceof Error
-						? `Could not save ${groupLabel}: ${error.message}`
-						: `Could not save ${groupLabel}.`,
+						? `${groupLabel} not saved: ${error.message}`
+						: `${groupLabel} not saved.`,
 				);
 			},
 		});
@@ -209,7 +208,7 @@ export function McpToolSettingsDialog({
 							{loadError ? (
 								<div className="mx-4 mt-3 flex items-start gap-2">
 									<Alert variant="panel" className="min-w-0 flex-1">
-										Could not load MCP tools: {loadError}
+										MCP tools not loaded: {loadError}
 									</Alert>
 									<Button
 										type="button"

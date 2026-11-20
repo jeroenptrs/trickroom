@@ -34,7 +34,7 @@ export function AuditLogLink() {
 				) : auditLogQuery.isError ? (
 					<span className="flex items-center gap-2">
 						<Text tone="danger" className="text-[11px]">
-							Could not load
+							Not loaded
 						</Text>
 						<Button
 							variant="ghost"

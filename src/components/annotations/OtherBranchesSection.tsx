@@ -76,14 +76,14 @@ export function OtherBranchesSection({
 				) : query.isError ? (
 					<RetryError
 						className="px-3"
-						message="Could not list other branches"
+						message="Other branches not loaded"
 						reason={errorReason(query.error)}
 						retrying={query.isFetching}
 						onRetry={() => void query.refetch()}
 					/>
 				) : others.length === 0 ? (
 					<p className="px-3 text-xs text-slate-500">
-						No annotations on other branches.
+						No annotations on other branches
 					</p>
 				) : (
 					<div className="flex flex-col divide-y divide-slate-100">

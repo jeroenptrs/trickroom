@@ -141,7 +141,7 @@ export function getRegistryPickerSections(
 		);
 
 	return [
-		{ title: "Components", items: components },
+		{ title: "Elements", items: components },
 		{ title: "Recipes", items: recipes },
 	];
 }
@@ -392,7 +392,7 @@ export function useLayerInsertion() {
 				addNodeTree(expansion.root, placement.parentId, placement.index);
 				return true;
 			} catch (error) {
-				toast.error(`Could not add ${component.name}`, {
+				toast.error(`${component.name} not added`, {
 					description: error instanceof Error ? error.message : undefined,
 				});
 				return false;

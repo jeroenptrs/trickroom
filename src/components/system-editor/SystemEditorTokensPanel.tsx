@@ -619,7 +619,7 @@ function TokenMasthead({
 							<span>
 								{syncedAt
 									? `Synced ${formatRelativeTime(syncedAt)}`
-									: "Not synced yet"}
+									: "Not synced"}
 							</span>
 						)}
 						<SystemDiffChips
@@ -655,7 +655,7 @@ function TokenMasthead({
 									className={`size-3.5 ${isSyncing ? "animate-spin text-cyan-300" : ""}`}
 									aria-hidden="true"
 								/>
-								{isSyncing ? "Syncing" : status === "idle" ? "Sync" : "Re-sync"}
+								{isSyncing ? "Syncing…" : status === "idle" ? "Sync" : "Re-sync"}
 							</Button>
 						</div>
 					)}
@@ -876,7 +876,7 @@ function ReviewBanner({
 							</>
 						) : (
 							<>
-								No review confirmed yet. Showing all{" "}
+								No review confirmed. Showing all{" "}
 								{changeCount.toLocaleString()}{" "}
 								{pluralize(changeCount, "difference")} from the {tailwindLabel}{" "}
 								defaults.
@@ -926,7 +926,7 @@ function ReviewBanner({
 						disabled={confirmDisabled}
 					>
 						<Check className="size-3.5" aria-hidden="true" />
-						{isSaving ? "Confirming" : "Confirm changeset"}
+						{isSaving ? "Confirming…" : "Confirm changeset"}
 					</Button>
 				</div>
 			</div>
@@ -2009,7 +2009,7 @@ function DomainTokenBrowser({
 	if (sections.length === 0) {
 		return (
 			<p className="px-10 py-8 text-sm text-slate-500">
-				No tokens match the current filters.
+				No matching tokens
 			</p>
 		);
 	}
@@ -2020,7 +2020,7 @@ function DomainTokenBrowser({
 				<TokenDomainSectionList
 					key={section.domain}
 					section={section}
-					emptyMessage="No tokens in this domain."
+					emptyMessage="No tokens"
 					isCollapsed={collapsedDomains.includes(section.domain)}
 					onToggle={() => onToggleDomain(section.domain)}
 				/>
@@ -2081,7 +2081,7 @@ function SyncedStatusTokenBrowser({
 	if (sections.length === 0) {
 		return (
 			<p className="px-10 py-8 text-sm text-slate-500">
-				No tokens match the current filters.
+				No matching tokens
 			</p>
 		);
 	}
@@ -2092,7 +2092,7 @@ function SyncedStatusTokenBrowser({
 				<TokenDomainSectionList
 					key={section.domain}
 					section={section}
-					emptyMessage="No tokens in this status."
+					emptyMessage="No tokens"
 				/>
 			))}
 		</div>
@@ -2202,7 +2202,7 @@ function CustomReviewChanges({
 	return (
 		<section className="flex flex-col gap-2 border-t border-slate-200 px-10 py-6">
 			<Text variant="subtitle" className="text-slate-900">
-				Resets, custom properties and utilities
+				Resets, custom properties, and utilities
 			</Text>
 			<div className="flex flex-col gap-1">
 				{rows.map((row) => {
@@ -2837,7 +2837,7 @@ export function SystemEditorTokensPanel({
 					/>
 					<div className="flex min-w-0 flex-col items-start gap-2">
 						<div>
-							<p className="text-sm font-medium">Could not load the tokens</p>
+							<p className="text-sm font-medium">Tokens not loaded</p>
 							<p className="mt-1 text-xs">{storedTokensError}</p>
 						</div>
 						<Button
@@ -2908,12 +2908,12 @@ export function SystemEditorTokensPanel({
 					className="rounded-none border-x-0 border-t-0 px-10 py-2 text-xs"
 					role="alert"
 				>
-					Could not sync {systemName}: {syncError}
+					{systemName} not synced: {syncError}
 				</Card>
 			) : null}
 			{totalTokenCount === 0 && changeRows.length === 0 ? (
 				<div className="px-10 py-8">
-					<EmptyTokenState title="No tokens yet">
+					<EmptyTokenState title="No tokens">
 						Sync to read the tokens from {cssPath ?? "the CSS file"}.
 					</EmptyTokenState>
 				</div>
@@ -2943,7 +2943,7 @@ export function SystemEditorTokensPanel({
 							<VisualTokenSections sections={filteredTokenSections} />
 							{filteredTokenSections.length === 0 ? (
 								<p className="px-10 py-8 text-sm text-slate-500">
-									No tokens match the current filters.
+									No matching tokens
 								</p>
 							) : nonVisualTokenSections.length > 0 ? (
 								<DomainTokenBrowser
@@ -2959,7 +2959,7 @@ export function SystemEditorTokensPanel({
 							emptyMessage={
 								showingReviewChanges && reviewChangeRows.length === 0
 									? noReviewTokenChangesMessage
-									: "No token changes match the current filters."
+									: "No matching token changes"
 							}
 						/>
 					) : reviewRequired ? (
@@ -2973,7 +2973,7 @@ export function SystemEditorTokensPanel({
 							emptyMessage={
 								showingReviewChanges && reviewChangeRows.length === 0
 									? noReviewTokenChangesMessage
-									: "No token changes match the current filters."
+									: "No matching token changes"
 							}
 						/>
 					) : (
