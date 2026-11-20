@@ -162,7 +162,7 @@ function RootLoadError({
 						{closeError ? (
 							<>
 								<br />
-								Could not close the project: {closeError}
+								Project not closed: {closeError}
 							</>
 						) : null}
 					</span>
@@ -225,13 +225,13 @@ function CheckoutGone({ reason }: { reason: "removed" | "no-project" }) {
 				icon={TriangleAlert}
 				title={
 					reason === "removed"
-						? "This checkout is no longer on this machine"
+						? "Checkout removed"
 						: "No Trickroom project in this checkout"
 				}
 				description={
 					reason === "removed"
 						? "Its folder was removed, for example when a worktree was cleaned up."
-						: "The branch checked out in this folder has no .trickroom config."
+						: "The branch checked out in this folder has no .trickroom/config.json."
 				}
 				action={
 					<Button
@@ -411,7 +411,7 @@ export function Root() {
 	if (sessionQuery.isError) {
 		return (
 			<RootLoadError
-				title="Could not load your projects"
+				title="Projects not loaded"
 				error={sessionQuery.error}
 				onRetry={() => void sessionQuery.refetch()}
 				isRetrying={sessionQuery.isFetching}
@@ -449,7 +449,7 @@ export function Root() {
 
 		return (
 			<RootLoadError
-				title={`Could not load ${activeProject?.name ?? "the project"}`}
+				title={`${activeProject?.name ?? "Project"} not loaded`}
 				error={configQuery.error}
 				onRetry={() => void configQuery.refetch()}
 				isRetrying={configQuery.isFetching}
@@ -461,7 +461,11 @@ export function Root() {
 	if (systemsQuery.isError) {
 		return (
 			<RootLoadError
-				title={`Could not load systems for ${activeProject?.name ?? "the project"}`}
+				title={
+					activeProject?.name
+						? `Systems not loaded for ${activeProject.name}`
+						: "Systems not loaded"
+				}
 				error={systemsQuery.error}
 				onRetry={() => void systemsQuery.refetch()}
 				isRetrying={systemsQuery.isFetching}

@@ -188,7 +188,7 @@ export function SaveErrorRow() {
 			role="alert"
 		>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<span className="font-medium text-red-900">Could not save</span>
+				<span className="font-medium text-red-900">Not saved</span>
 				<span className="wrap-break-word text-slate-700">{status.error}</span>
 			</div>
 			<Button
@@ -237,7 +237,7 @@ export function SaveIndicator() {
 	}
 
 	const Icon = status.saving ? FileUp : FileCheck;
-	const label = status.saving ? "Saving" : "Saved";
+	const label = status.saving ? "Saving…" : "Saved";
 	return (
 		<span role="status" title={label} className="shrink-0 p-1">
 			<Icon className="size-4 text-slate-900" aria-hidden="true" />

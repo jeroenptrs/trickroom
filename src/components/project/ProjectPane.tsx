@@ -33,8 +33,7 @@ function WelcomePane({
 		<>
 			<EmptyState
 				icon={LayoutTemplate}
-				title="No designs or systems yet"
-				description="Create a design to start drawing, or add a system to use your tokens."
+				title="No designs or systems"
 				action={
 					<div className="flex items-center gap-2">
 						<Button
@@ -58,9 +57,7 @@ function WelcomePane({
 				}
 			>
 				{createError ? (
-					<Alert variant="panel">
-						Could not create the design: {createError}
-					</Alert>
+					<Alert variant="panel">Design not created: {createError}</Alert>
 				) : null}
 			</EmptyState>
 			<CreateSystemDialog
@@ -74,7 +71,7 @@ function WelcomePane({
 
 function NothingSelectedPane() {
 	return (
-		<EmptyState icon={MousePointerClick} title="Select a design or system">
+		<EmptyState icon={MousePointerClick} title="Select a design or system.">
 			<div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
 				<KbdHint keys="↑↓" label="Select" />
 				<KbdHint keys="⌘N" label="New design" />

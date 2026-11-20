@@ -15,7 +15,7 @@ export function MemoryNotesButton({
 	projectScope,
 	title,
 	subtitle,
-	label = "Memory",
+	label = "Memory notes",
 	variant = "block",
 	className,
 	disabled,

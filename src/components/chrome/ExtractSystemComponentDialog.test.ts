@@ -346,8 +346,7 @@ describe("extractSystemComponentMutation", () => {
 			}),
 		).rejects.toMatchObject({
 			name: "ExtractSystemComponentPostPublishError",
-			message:
-				"Published the component, but the selected layer could not be replaced.",
+			message: "Component published, but the selected layer was not replaced.",
 			partialResult: {
 				systemId: "core",
 				componentId: "cmp_selection",

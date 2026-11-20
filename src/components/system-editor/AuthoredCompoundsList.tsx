@@ -158,10 +158,10 @@ export function AuthoredCompoundsList({ onMutate }: { onMutate?: () => void }) {
 				tone="destructive"
 				title={
 					pendingDelete?.label
-						? `Remove compound variant ${pendingDelete.label}`
-						: "Remove compound variant"
+						? `Remove compound variant "${pendingDelete.label}"?`
+						: "Remove compound variant?"
 				}
-				description="Its classes are removed with it. This can't be undone."
+				description="Its classes are removed with it. No undo."
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionLabel="Remove compound variant"
 				onAction={() => {

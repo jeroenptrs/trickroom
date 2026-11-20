@@ -346,7 +346,7 @@ export function LintFileHeatMapView({
 		<div className="flex flex-col gap-4" data-lint-view="files">
 			<SectionHeading
 				title="Code map"
-				detail={`${report.files.length.toLocaleString()} files with a role, a usage or a finding, of ${report.summary.code.scanned.toLocaleString()} scanned. Folders add up their files.`}
+				detail={`${report.files.length.toLocaleString()} files with a role, a usage, or a finding, of ${report.summary.code.scanned.toLocaleString()} scanned. Folders add up their files.`}
 			/>
 			<div className="flex flex-wrap items-center gap-2">
 				<div className="relative min-w-48 flex-1">
@@ -358,7 +358,7 @@ export function LintFileHeatMapView({
 						variant="formCompact"
 						className="w-full px-7"
 						aria-label="Filter files"
-						placeholder="Filter by path"
+						placeholder="Filter by path…"
 						value={text}
 						onChange={(event) => setText(event.target.value)}
 					/>
@@ -383,8 +383,8 @@ export function LintFileHeatMapView({
 			{files.length === 0 ? (
 				<Text variant="meta">
 					{report.files.length === 0
-						? "No scanned file has a role, a usage or a finding."
-						: "No files match the filter."}
+						? "No scanned file has a role, a usage, or a finding."
+						: "No matching files"}
 				</Text>
 			) : (
 				<HeatTree

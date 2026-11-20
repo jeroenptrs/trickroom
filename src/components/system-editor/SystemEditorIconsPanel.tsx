@@ -333,7 +333,7 @@ export function SystemEditorIconFoldersRail({
 		mutationFn: (folderPath: string) =>
 			addSystemIconFolder({ systemId, folderPath }),
 		onMutate: clearIconFolderActionError,
-		onError: captureIconFolderActionError("Could not add the icon folder"),
+		onError: captureIconFolderActionError("Icon folder not added"),
 		onSuccess: async (response) => {
 			clearIconFolderActionError();
 			queryClient.setQueryData(iconsQueryKey, response);
@@ -357,7 +357,7 @@ export function SystemEditorIconFoldersRail({
 	const reindexIconsMutation = useMutation({
 		mutationFn: () => syncSystemIconsMutation(systemId),
 		onMutate: clearIconFolderActionError,
-		onError: captureIconFolderActionError("Could not re-sync the icons"),
+		onError: captureIconFolderActionError("Icons not re-synced"),
 		onSuccess: async (response) => {
 			clearIconFolderActionError();
 			queryClient.setQueryData(iconsQueryKey, response);
@@ -405,7 +405,7 @@ export function SystemEditorIconFoldersRail({
 								className={`size-3.5 ${reindexIconsMutation.isPending ? "animate-spin" : ""}`}
 								aria-hidden="true"
 							/>
-							Re-sync
+							{reindexIconsMutation.isPending ? "Re-syncing…" : "Re-sync"}
 						</Button>
 					)}
 				</div>
@@ -445,7 +445,7 @@ export function SystemEditorIconFoldersRail({
 							onClick={addIconFolder}
 							disabled={addIconFolderDisabled}
 						>
-							Add folder
+							{addIconFolderMutation.isPending ? "Adding…" : "Add folder"}
 						</Button>
 					</div>
 				</div>
@@ -464,9 +464,7 @@ export function SystemEditorIconFoldersRail({
 						))}
 					</div>
 				) : iconsQuery.isError ? null : folders.length === 0 ? (
-					<p className="px-2 py-3 text-sm text-slate-500">
-						No icon folders yet.
-					</p>
+					<p className="px-2 py-3 text-sm text-slate-500">No icon folders</p>
 				) : (
 					<div className="flex flex-col gap-1">
 						{folders.map((folder) => (
@@ -510,7 +508,11 @@ export function SystemEditorIconFoldersRail({
 						setFolderToRemove(null);
 					}
 				}}
-				title="Remove icon folder"
+				title={
+					folderToRemove
+						? `Remove icon folder "${folderToRemove}"?`
+						: "Remove icon folder?"
+				}
 				description={
 					folderToRemove === null ? null : (
 						<span>
@@ -525,7 +527,7 @@ export function SystemEditorIconFoldersRail({
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
 				actionLabel={
-					removeIconFolderMutation.isPending ? "Removing" : "Remove folder"
+					removeIconFolderMutation.isPending ? "Removing…" : "Remove folder"
 				}
 				actionDisabled={removeIconFolderMutation.isPending}
 				error={
@@ -645,7 +647,7 @@ export function SystemEditorIconsPanel({
 			<div className="flex min-h-0 flex-col gap-4 px-5 py-4" role="alert">
 				<SystemIconsToolbar
 					countLabel={null}
-					filteredCountLabel="Icons could not be loaded"
+					filteredCountLabel="Icons not loaded"
 					filter={iconFilter}
 					filterInputRef={filterInputRef}
 					groupByFolder={groupIconsByFolder}
@@ -657,9 +659,7 @@ export function SystemEditorIconsPanel({
 					tone="danger"
 					className="flex flex-col items-start gap-2 px-4 py-3 text-sm"
 				>
-					<span>
-						Could not load the icons: {(iconsQuery.error as Error).message}
-					</span>
+					<span>Icons not loaded: {(iconsQuery.error as Error).message}</span>
 					<Button
 						type="button"
 						variant="outlined"
@@ -691,9 +691,7 @@ export function SystemEditorIconsPanel({
 			{icons.length === 0 ? (
 				<div className="flex min-h-0 flex-1 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-4 py-10 text-center">
 					<Library className="size-6 text-slate-400" aria-hidden="true" />
-					<p className="mt-3 text-sm font-medium text-slate-900">
-						No icons yet
-					</p>
+					<p className="mt-3 text-sm font-medium text-slate-900">No icons</p>
 					<p className="mt-1 max-w-md text-sm text-slate-500">
 						Add an icon folder in the sidebar to list its SVGs.
 					</p>

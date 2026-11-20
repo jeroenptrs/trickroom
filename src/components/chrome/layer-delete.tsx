@@ -76,8 +76,8 @@ export function LayerDeleteDialog() {
 	const inner = target?.innerCount ?? 0;
 	const description =
 		inner > 0
-			? `${inner} ${inner === 1 ? "layer is" : "layers are"} deleted with it. This can't be undone.`
-			: "This can't be undone.";
+			? `Deletes ${inner} ${inner === 1 ? "layer" : "layers"}. No undo.`
+			: "No undo.";
 
 	return (
 		<ConfirmationDialog
@@ -86,7 +86,7 @@ export function LayerDeleteDialog() {
 				if (!open) closeLayerDelete();
 			}}
 			tone="destructive"
-			title={target ? `Delete ${noun} ${target.name}` : ""}
+			title={target ? `Delete ${noun} "${target.name}"?` : ""}
 			description={description}
 			icon={<Trash2 className="size-4" aria-hidden="true" />}
 			actionLabel={`Delete ${noun}`}

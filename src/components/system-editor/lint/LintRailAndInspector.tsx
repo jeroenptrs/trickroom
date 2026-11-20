@@ -520,7 +520,7 @@ export function SystemEditorLintInspector({
 	if (!report || !selection) {
 		return (
 			<Text variant="meta">
-				Select a finding, file, component or design to see its details.
+				Select a finding, file, component, or design.
 			</Text>
 		);
 	}

@@ -15,6 +15,7 @@ These docs are organized as a user guide first and implementation notes second. 
 - [Architecture](./architecture.md): React app, Hono API, MCP server, authentication, build output, and runtime data flow.
 - [Component Codegen](./codegen.md): generate and check tailwind-variants files from published system components with `trickroom codegen`.
 - [Design System Lint](./lint.md): check how the app and the Designs use a design system with `trickroom lint`, the `lint` MCP tool and the report the dashboard reads; the specification for `lint.json`, `lint-report.json`, the contract, the rule kinds and the ratchet.
+- [Copywriting Guideline](./copywriting.md): product facts, terms, tone of voice, and the rules for UI strings, docs, and marketing and release text.
 - [Development](./development.md): local setup, scripts, packaging, generated files, and test coverage.
 
 ## Quick Safety Summary

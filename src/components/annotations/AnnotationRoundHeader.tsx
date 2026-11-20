@@ -78,7 +78,11 @@ export function AnnotationRoundHeader({
 					: "Send every draft, on every board, into the round"
 			}
 		>
-			{drafts.length > 0 ? `Send round (${drafts.length})` : "Send round"}
+			{sending
+				? "Sending…"
+				: drafts.length > 0
+					? `Send round (${drafts.length})`
+					: "Send round"}
 		</Button>
 	);
 
@@ -129,7 +133,7 @@ export function AnnotationRoundHeader({
 					onClick={requestClose}
 					title="Close the round. The annotations in it keep their status."
 				>
-					Close round
+					{closing ? "Closing…" : "Close round"}
 				</Button>
 			</div>
 		</div>

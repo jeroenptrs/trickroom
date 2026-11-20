@@ -134,19 +134,21 @@ describe("WorkspaceToolbar", () => {
 		expect(html).toContain('title="Back to project"');
 		expect(html).toContain("Toolbar test");
 		expect(html).toContain("No system");
-		expect(html).toMatch(/aria-label="Show layers"[^>]*aria-expanded="false"/);
-		expect(html).toContain('title="Show layers (Alt+[)"');
+		expect(html).toMatch(
+			/aria-label="Expand layers panel"[^>]*aria-expanded="false"/,
+		);
+		expect(html).toContain('title="Expand layers panel (Alt+[)"');
 		expect(html).toContain("lucide-panel-left-open");
 		expect(html.indexOf("Back to project")).toBeLessThan(
 			html.indexOf("Canvas"),
 		);
 
 		expect(html).toMatch(
-			/aria-label="Show properties"[^>]*aria-expanded="false"/,
+			/aria-label="Expand inspector"[^>]*aria-expanded="false"/,
 		);
-		expect(html).toContain('title="Show properties (Alt+])"');
+		expect(html).toContain('title="Expand inspector (Alt+])"');
 		expect(html).toContain("lucide-panel-right-open");
-		expect(html.indexOf("Show properties")).toBeGreaterThan(
+		expect(html.indexOf("Expand inspector")).toBeGreaterThan(
 			html.indexOf("Responsive"),
 		);
 	});
@@ -158,7 +160,7 @@ describe("WorkspaceToolbar", () => {
 			responsiveWidth: 768,
 		});
 
-		for (const label of ["Show layers", "Show properties"]) {
+		for (const label of ["Expand layers panel", "Expand inspector"]) {
 			const button = html.slice(
 				html.lastIndexOf("<button", html.indexOf(`aria-label="${label}"`)),
 			);
@@ -186,24 +188,28 @@ describe("WorkspaceToolbar", () => {
 
 		// The open rail carries its own header and collapse toggle.
 		expect(html).not.toContain("Back to project");
-		expect(html).not.toContain("Show layers");
-		expect(html).not.toContain("Hide layers");
+		expect(html).not.toContain("Expand layers panel");
+		expect(html).not.toContain("Collapse layers panel");
 		expect(html).toMatch(
-			/aria-label="Hide properties"[^>]*aria-expanded="true"/,
+			/aria-label="Collapse inspector"[^>]*aria-expanded="true"/,
 		);
-		expect(html).toContain('title="Hide properties (Alt+])"');
+		expect(html).toContain('title="Collapse inspector (Alt+])"');
 		expect(html).toContain("lucide-panel-right-close");
 	});
 
 	it("labels panel toggles by the action they take", () => {
-		expect(getPanelToggleLabel("rail", true)).toBe("Hide layers");
-		expect(getPanelToggleLabel("rail", false)).toBe("Show layers");
-		expect(getPanelToggleLabel("inspector", true)).toBe("Hide properties");
-		expect(getPanelToggleLabel("inspector", false)).toBe("Show properties");
-		expect(getPanelToggleTitle("rail", true)).toBe("Hide layers (Alt+[)");
-		expect(getPanelToggleTitle("rail", false)).toBe("Show layers (Alt+[)");
+		expect(getPanelToggleLabel("rail", true)).toBe("Collapse layers panel");
+		expect(getPanelToggleLabel("rail", false)).toBe("Expand layers panel");
+		expect(getPanelToggleLabel("inspector", true)).toBe("Collapse inspector");
+		expect(getPanelToggleLabel("inspector", false)).toBe("Expand inspector");
+		expect(getPanelToggleTitle("rail", true)).toBe(
+			"Collapse layers panel (Alt+[)",
+		);
+		expect(getPanelToggleTitle("rail", false)).toBe(
+			"Expand layers panel (Alt+[)",
+		);
 		expect(getPanelToggleTitle("inspector", false)).toBe(
-			"Show properties (Alt+])",
+			"Expand inspector (Alt+])",
 		);
 	});
 

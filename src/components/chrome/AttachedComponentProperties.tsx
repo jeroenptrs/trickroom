@@ -160,8 +160,7 @@ function ComponentStatusMessage({
 		case "unknown":
 			return (
 				<Alert variant="inline" tone="danger">
-					Could not read this instance's component. Check that the design links
-					a system.
+					Component not read. Check that the design links a system.
 				</Alert>
 			);
 	}
@@ -321,9 +320,9 @@ function AttachedComponentRootControls({
 				sourceVersion: version,
 				targetVersion: currentVersion,
 			});
-			toast.success(`Updated ${componentName}`);
+			toast.success(`${componentName} updated`);
 		} catch (error) {
-			toast.error(`Could not update ${componentName}`, {
+			toast.error(`${componentName} not updated`, {
 				description:
 					error instanceof SystemComponentInstanceMigrationError ||
 					error instanceof Error
@@ -376,7 +375,7 @@ function AttachedComponentRootControls({
 					</div>
 					{loadError ? (
 						<RetryError
-							message={`Could not load ${componentName}`}
+							message={`${componentName} not loaded`}
 							reason={loadError.reason}
 							retrying={loadError.retrying}
 							onRetry={loadError.onRetry}
@@ -401,7 +400,7 @@ function AttachedComponentRootControls({
 								disabled={updateBlocked}
 								onClick={() => setConfirm("update")}
 							>
-								Update instance
+								Update instance…
 							</Button>
 						) : null}
 						{overrideCount > 0 ? (
@@ -411,7 +410,7 @@ function AttachedComponentRootControls({
 								className="w-fit px-2 py-1 text-xs"
 								onClick={() => setConfirm("reset")}
 							>
-								Reset overrides
+								Reset overrides…
 							</Button>
 						) : null}
 						<Button
@@ -420,7 +419,7 @@ function AttachedComponentRootControls({
 							className="w-fit px-2 py-1 text-xs"
 							onClick={() => setConfirm("detach")}
 						>
-							Detach instance
+							Detach instance…
 						</Button>
 					</div>
 				</div>
@@ -429,7 +428,7 @@ function AttachedComponentRootControls({
 					onOpenChange={(open) => {
 						if (!open) setConfirm(null);
 					}}
-					title={`Update ${componentName} to version ${currentVersion?.version ?? ""}`}
+					title={`Update "${componentName}" to version ${currentVersion?.version ?? ""}?`}
 					description={
 						reviewCount > 0
 							? `${reviewCount} migration ${reviewCount === 1 ? "note needs" : "notes need"} review.`
@@ -445,8 +444,8 @@ function AttachedComponentRootControls({
 						if (!open) setConfirm(null);
 					}}
 					tone="destructive"
-					title="Reset overrides"
-					description="Removes every class, text, icon, asset, and property override on this instance. This can't be undone."
+					title="Reset overrides?"
+					description="Removes every class, text, icon, asset, and property override on this instance. No undo."
 					icon={<RotateCcw className="size-4" aria-hidden="true" />}
 					actionLabel="Reset overrides"
 					onAction={handleResetOverrides}
@@ -457,8 +456,8 @@ function AttachedComponentRootControls({
 						if (!open) setConfirm(null);
 					}}
 					tone="destructive"
-					title={`Detach ${componentName}`}
-					description="The layers stay. They no longer update with the component. This can't be undone."
+					title={`Detach "${componentName}"?`}
+					description="The layers stay. They no longer update with the component. No undo."
 					icon={<Unlink className="size-4" aria-hidden="true" />}
 					actionLabel="Detach instance"
 					onAction={handleDetach}
@@ -501,7 +500,7 @@ function AttachedComponentOwnedContext({
 	return (
 		<section className="flex flex-col">
 			<div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold text-slate-700">
-				Attached component
+				Component
 			</div>
 			<div className="flex flex-col gap-2 px-3 pb-3 text-xs text-slate-950">
 				<p>
@@ -625,14 +624,14 @@ export function AttachedComponentProperties({
 		return (
 			<section className="flex flex-col">
 				<div className="flex items-center justify-between px-3 py-2 text-[11px] font-semibold text-slate-700">
-					Attached component
+					Component
 				</div>
 				<div className="px-3 pb-3 text-xs text-slate-600">
 					<p>
 						This layer sits inside the{" "}
 						<strong>{inspection.slot.slotName}</strong> slot of{" "}
-						<strong>{componentName}</strong>. Slot content remains editable;
-						component structure does not.
+						<strong>{componentName}</strong>. Slot content remains editable.
+						Component structure does not.
 					</p>
 				</div>
 			</section>

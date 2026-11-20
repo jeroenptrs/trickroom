@@ -160,7 +160,7 @@ export function LintCoverageView({
 							variant="formCompact"
 							className="w-full px-7"
 							aria-label="Search components"
-							placeholder="Search components"
+							placeholder="Search components…"
 							value={search}
 							onChange={(event) => setSearch(event.target.value)}
 						/>
@@ -199,7 +199,7 @@ export function LintCoverageView({
 						<Text variant="meta" render={<p />} className="px-3 py-4">
 							{total === 0
 								? "No published components. Publish one, then run lint."
-								: "No components match this filter."}
+								: "No matching components"}
 						</Text>
 					) : null}
 					<div

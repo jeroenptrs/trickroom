@@ -159,7 +159,7 @@ export function AnnotationComposer({
 							title={
 								pin.inView
 									? "Make it about the variant values in view only"
-									: "Select variant values under Style target to pin to them"
+									: "Select a variant value to pin."
 							}
 						>
 							Pin to current configuration
@@ -185,7 +185,7 @@ export function AnnotationComposer({
 					onClick={() => void send()}
 					title={`Send to the agent (${formatShortcut(["Mod", "Enter"])})`}
 				>
-					Send
+					{sending ? "Sending…" : "Send"}
 				</Button>
 			</div>
 		</div>

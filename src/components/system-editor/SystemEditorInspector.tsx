@@ -680,7 +680,7 @@ export function variantFieldErrors(drafts: VariantAxisDraft[]) {
 		} else if (!variantAxisKeyPattern.test(axisKey)) {
 			errors.set(
 				`axis-key:${axis.id}`,
-				"Start with a letter. Use only letters, numbers, _ and -.",
+				"Start with a letter. Use only letters, numbers, _, and -.",
 			);
 		} else if ((axisKeyCounts.get(axisKey) ?? 0) > 1) {
 			errors.set(`axis-key:${axis.id}`, "Another axis uses this key.");
@@ -701,7 +701,7 @@ export function variantFieldErrors(drafts: VariantAxisDraft[]) {
 			} else if (!variantValueKeyPattern.test(valueKey)) {
 				errors.set(
 					`value-key:${value.id}`,
-					"Start with a letter or number. Use only letters, numbers, _ and -.",
+					"Start with a letter or number. Use only letters, numbers, _, and -.",
 				);
 			} else if ((valueKeyCounts.get(valueKey) ?? 0) > 1) {
 				errors.set(
@@ -833,7 +833,7 @@ function VariantSchemaEditor({
 			</div>
 			{drafts.length === 0 ? (
 				<Text variant="meta" render={<p />}>
-					No variant axes yet.
+					No variant axes
 				</Text>
 			) : null}
 			{drafts.map((axis, axisIndex) => (
@@ -1373,7 +1373,7 @@ export function SystemEditorComponentContextPanel({
 	if (detailQuery.isError) {
 		return (
 			<InspectorLoadError
-				title="Could not load this component"
+				title="Component not loaded"
 				error={detailQuery.error}
 				isRetrying={detailQuery.isFetching}
 				onRetry={() => detailQuery.refetch()}
@@ -1419,21 +1419,21 @@ export function SystemEditorComponentContextPanel({
 		? null
 		: needsReviewUsageCount > 0
 			? hashMismatchCount > 0 && staleUsageCount === 0
-				? `${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
+				? `${hashMismatchCount} changed`
 				: `${needsReviewUsageCount} need${needsReviewUsageCount === 1 ? "s" : ""} review, ${currentUsageCount} current`
 			: attentionDiagnosticCount > 0
 				? `${attentionDiagnosticCount} diagnostic${attentionDiagnosticCount === 1 ? "" : "s"} need attention`
 				: usedByCount > 0
 					? `${usedByCount} current`
-					: "No usages";
+					: "No instances";
 	const usageDetailLabel = usageQuery.isPending
 		? null
 		: hashMismatchCount > 0
-			? `${usedByCount} total, ${hashMismatchCount} hash mismatch${hashMismatchCount === 1 ? "" : "es"}`
+			? `${usedByCount} total, ${hashMismatchCount} changed`
 			: `${usedByCount} total across ${scannedDesignCount} scanned design${scannedDesignCount === 1 ? "" : "s"}`;
 	const usageRows = usageQuery.isError ? (
 		<InspectorLoadError
-			title="Could not check design usage"
+			title="Design usage not checked"
 			error={usageQuery.error}
 			isRetrying={usageQuery.isFetching}
 			onRetry={() => usageQuery.refetch()}
@@ -1839,7 +1839,7 @@ function AssetInspector({
 	if (assetsQuery.isError) {
 		return (
 			<InspectorLoadError
-				title="Could not load this asset"
+				title="Asset not loaded"
 				error={assetsQuery.error}
 				isRetrying={assetsQuery.isFetching}
 				onRetry={() => assetsQuery.refetch()}
@@ -1906,7 +1906,7 @@ function IconInspector({
 	if (iconsQuery.isError) {
 		return (
 			<InspectorLoadError
-				title="Could not load this icon"
+				title="Icon not loaded"
 				error={iconsQuery.error}
 				isRetrying={iconsQuery.isFetching}
 				onRetry={() => iconsQuery.refetch()}

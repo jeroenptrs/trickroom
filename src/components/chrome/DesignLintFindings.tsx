@@ -105,7 +105,7 @@ export function DesignLintSummary({ designId }: { designId: string }) {
 	if (lint.isError) {
 		return (
 			<RetryError
-				message="Could not run lint"
+				message="Lint not run"
 				reason={errorReason(lint.error)}
 				retrying={lint.isFetching}
 				onRetry={() => void lint.refetch()}

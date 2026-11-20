@@ -389,7 +389,7 @@ export function Design() {
 				<EmptyState
 					className="flex-1"
 					icon={FileWarning}
-					title="Could not open this design"
+					title="Design not opened"
 					description={errorMessage}
 					action={
 						<div className="flex gap-2">

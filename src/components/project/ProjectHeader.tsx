@@ -68,7 +68,7 @@ function ProjectTitle({
 		},
 		// A toast keeps the header one line tall.
 		onError: (error) => {
-			toast.error("Could not rename the project", {
+			toast.error("Project not renamed", {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},
@@ -107,7 +107,7 @@ export function ProjectHeader() {
 			queryClient.invalidateQueries({ queryKey: configFileQueryKey });
 		},
 		onError: (error) => {
-			toast.error("Could not change MCP access", {
+			toast.error("MCP access not changed", {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},

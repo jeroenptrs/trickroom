@@ -27,13 +27,13 @@ import { Input } from "../ui/input";
 
 const PANEL_TOGGLES = {
 	rail: {
-		name: "layers",
+		name: "layers panel",
 		shortcut: formatShortcut(["Alt", "["]),
 		CloseIcon: PanelLeftClose,
 		OpenIcon: PanelLeftOpen,
 	},
 	inspector: {
-		name: "properties",
+		name: "inspector",
 		shortcut: formatShortcut(["Alt", "]"]),
 		CloseIcon: PanelRightClose,
 		OpenIcon: PanelRightOpen,
@@ -49,7 +49,7 @@ const PANEL_TOGGLES = {
 >;
 
 export function getPanelToggleLabel(panel: EditorChromePanel, open: boolean) {
-	return `${open ? "Hide" : "Show"} ${PANEL_TOGGLES[panel].name}`;
+	return `${open ? "Collapse" : "Expand"} ${PANEL_TOGGLES[panel].name}`;
 }
 
 export function getPanelToggleTitle(panel: EditorChromePanel, open: boolean) {

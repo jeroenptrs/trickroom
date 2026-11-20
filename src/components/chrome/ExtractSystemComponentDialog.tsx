@@ -233,7 +233,7 @@ export async function extractSystemComponentMutation({
 		{ expectedRevision: created.revision },
 	);
 	if (!published.publishedVersion) {
-		throw new Error(`Could not publish ${name.trim()}. Try again.`);
+		throw new Error(`${name.trim()} not published.`);
 	}
 	const partialResult = {
 		systemId: published.systemId,
@@ -250,13 +250,13 @@ export async function extractSystemComponentMutation({
 		throw new ExtractSystemComponentPostPublishError(
 			error instanceof Error
 				? error.message
-				: "Failed to expand the published component.",
+				: "Published component not expanded.",
 			partialResult,
 		);
 	}
 	if (!replaceElementWithNodeTree(elementId, expansion.root)) {
 		throw new ExtractSystemComponentPostPublishError(
-			"Published the component, but the selected layer could not be replaced.",
+			"Component published, but the selected layer was not replaced.",
 			partialResult,
 		);
 	}
@@ -445,7 +445,7 @@ export function ExtractSystemComponentDialog({
 										}
 										disabled={mutation.isPending || systemsQuery.isPending}
 									>
-										<option value="">Choose a system</option>
+										<option value="">Choose system</option>
 										{systems.map((system) => (
 											<option key={system.systemId} value={system.systemId}>
 												{system.systemName}
@@ -533,7 +533,7 @@ export function ExtractSystemComponentDialog({
 										disabled={mutation.isPending}
 									/>
 									<span className="flex flex-col gap-0.5">
-										<span>Replace the layer with an instance</span>
+										<span>Replace layer with instance</span>
 										<span className="text-[11px] text-slate-500">
 											Publishes version 1 of the component.
 										</span>

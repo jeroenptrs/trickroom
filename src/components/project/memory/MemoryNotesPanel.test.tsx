@@ -92,7 +92,7 @@ describe("MemoryNotesPanel", () => {
 			),
 		);
 		const html = await renderPanel();
-		expect(html).toContain("No notes yet");
+		expect(html).toContain("No notes");
 	});
 
 	// A failed prefetch renders as pending on mount (the query refetches), so
@@ -107,7 +107,7 @@ describe("MemoryNotesPanel", () => {
 		const html = await renderPanel();
 		expect(html).toContain('aria-busy="true"');
 		expect(html).toContain('data-slot="skeleton"');
-		expect(html).not.toContain("No notes yet");
+		expect(html).not.toContain("No notes");
 		expect(html).not.toContain("0 notes");
 	});
 });

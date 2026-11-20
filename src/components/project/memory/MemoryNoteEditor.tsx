@@ -145,7 +145,7 @@ export function MemoryNoteEditor({
 				/>
 			</Field>
 
-			<Field label="Title" description="Optional short heading.">
+			<Field label="Title" description="Optional.">
 				<Input
 					variant="formCompact"
 					value={title}

@@ -748,7 +748,7 @@ describe("Properties", () => {
 			},
 		);
 
-		expect(html).toContain("Attached component");
+		expect(html).toContain("Component");
 		expect(html).toContain("Template path");
 		expect(html).toContain("label");
 		expect(html).not.toContain("Detach instance");

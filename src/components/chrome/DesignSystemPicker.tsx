@@ -14,7 +14,7 @@ export function DesignSystemPicker() {
 		return (
 			<div className="px-1 flex flex-col gap-1">
 				<Text variant="label">System</Text>
-				<Text variant="meta">No systems in this project</Text>
+				<Text variant="meta">No systems</Text>
 			</div>
 		);
 	}

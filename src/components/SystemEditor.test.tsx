@@ -319,7 +319,7 @@ describe("SystemEditor", () => {
 		expect(html).toContain("Icons");
 		expect(html).toContain("w-[300px]");
 		expect(html).not.toContain("Inspector");
-		expect(html).toContain("No components yet");
+		expect(html).toContain("No components");
 	});
 
 	it("shows a not-found state with a way back for unknown systems", () => {
@@ -1117,7 +1117,7 @@ describe("SystemEditor page panels", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("1 hash mismatch");
+		expect(html).toContain("1 changed");
 		expect(html).not.toContain("diagnostic needs attention");
 		expect(html).not.toContain("diagnostics need attention");
 	});
@@ -1427,14 +1427,14 @@ describe("SystemEditor collapsible panels", () => {
 		const html = renderSystemEditor("/system/core");
 
 		expect(html).toContain("Expand the sidebar (Alt+[) to pick a component.");
-		expect(html).not.toContain("Select a component to edit it.");
+		expect(html).not.toContain("Select a component.");
 	});
 
 	it("asks to select a component draft while the rail is open", () => {
 		setEditorPanelOpen("system", "rail", true);
 		const html = renderSystemEditor("/system/core");
 
-		expect(html).toContain("Select a component to edit it.");
+		expect(html).toContain("Select a component.");
 	});
 
 	it("floats the header with a dark expand icon when the rail is collapsed", () => {

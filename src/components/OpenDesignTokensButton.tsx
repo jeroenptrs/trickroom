@@ -11,7 +11,7 @@ export function OpenDesignTokensButton({
 	systemId,
 	className,
 	iconClassName = "size-4 text-slate-900",
-	title = "Open design tokens",
+	title = "Open tokens",
 }: {
 	systemId: string | null | undefined;
 	className?: string;

@@ -177,7 +177,7 @@ export function useGuardedComponentLocation({
 			description="This component has unsaved changes."
 			icon={<TriangleAlert className="size-4" aria-hidden="true" />}
 			tone="default"
-			actionLabel={saveDraftMutation.isPending ? "Saving" : "Save draft"}
+			actionLabel={saveDraftMutation.isPending ? "Saving…" : "Save draft"}
 			actionDisabled={!canSave || saveDraftMutation.isPending}
 			error={saveError}
 			secondaryAction={{

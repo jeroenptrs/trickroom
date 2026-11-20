@@ -23,7 +23,7 @@ import { ReadOnlyField } from "../ui/readonly-field";
 import { ScrollArea } from "../ui/scroll-area";
 import { Text } from "../ui/text";
 import { MemoryNotesButton } from "./memory/MemoryNotesButton";
-import { formatRelativeTime } from "./project-view-utils";
+import { formatRelativeTime, pluralize } from "./project-view-utils";
 
 export function DesignDetailPane({
 	design,
@@ -106,7 +106,7 @@ export function DesignDetailPane({
 					errors={
 						renameError ? (
 							<Text tone="danger" className="text-xs">
-								Could not rename the design: {renameError}
+								Design not renamed: {renameError}
 							</Text>
 						) : null
 					}
@@ -216,12 +216,11 @@ export function DesignDetailPane({
 						setDeleteDialogOpen(false);
 					}
 				}}
-				title="Delete design"
+				title={`Delete design "${design.name}"?`}
 				description={
-					<>
-						&quot;{design.name}&quot; and its boards are deleted from this
-						project. This can't be undone.
-					</>
+					design.boardsCount > 0
+						? `Deletes ${design.boardsCount.toLocaleString()} ${pluralize(design.boardsCount, "board")} from this project. No undo.`
+						: "No undo."
 				}
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
 				actionIcon={<Trash2 className="size-3.5" aria-hidden="true" />}
@@ -230,7 +229,7 @@ export function DesignDetailPane({
 				tone="destructive"
 				onAction={deleteSelectedDesign}
 				error={
-					deleteError ? `Could not delete ${design.name}: ${deleteError}` : null
+					deleteError ? `${design.name} not deleted: ${deleteError}` : null
 				}
 			/>
 		</>

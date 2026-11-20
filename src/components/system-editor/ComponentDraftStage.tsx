@@ -392,7 +392,7 @@ export function ComponentDraftStage({
 		return (
 			<div className="flex min-h-0 flex-1 items-center justify-center bg-slate-100 px-6 text-center text-sm text-slate-500">
 				{railOpen
-					? "Select a component to edit it."
+					? "Select a component."
 					: "Expand the sidebar (Alt+[) to pick a component."}
 			</div>
 		);
@@ -406,7 +406,7 @@ export function ComponentDraftStage({
 		return (
 			<div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-2 bg-slate-100 px-6 text-sm">
 				<Alert variant="panel" className="self-stretch">
-					<span className="block font-medium">Could not load this draft</span>
+					<span className="block font-medium">Draft not loaded</span>
 					<span className="mt-1 block text-xs">
 						{(componentQuery.error as Error).message}
 					</span>
@@ -430,8 +430,8 @@ export function ComponentDraftStage({
 			<div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 bg-slate-100 px-6 text-center text-sm text-slate-700">
 				<p>
 					{publishedVersion
-						? `Published as v${publishedVersion}. No draft yet.`
-						: "No draft yet."}
+						? `Published as v${publishedVersion}. No draft.`
+						: "No draft"}
 				</p>
 				{publishedVersion ? (
 					<Button
@@ -441,7 +441,7 @@ export function ComponentDraftStage({
 						disabled={createDraftMutation.isPending}
 						onClick={() => createDraftMutation.mutate()}
 					>
-						{createDraftMutation.isPending ? "Creating draft" : "Create draft"}
+						{createDraftMutation.isPending ? "Creating…" : "Create draft"}
 					</Button>
 				) : null}
 				{createDraftMutation.error ? (

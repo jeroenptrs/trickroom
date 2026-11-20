@@ -324,18 +324,18 @@ function SystemOverviewSubview({
 			<MetricCard
 				label="Assets"
 				value={assets.length.toLocaleString()}
-				state={getMetricState(assetsQuery, "Could not load assets")}
+				state={getMetricState(assetsQuery, "Assets not loaded")}
 			/>
 			<MetricCard
 				label="Icons"
 				value={iconCount.toLocaleString()}
 				detail={iconDetail}
-				state={getMetricState(iconFoldersQuery, "Could not load icons")}
+				state={getMetricState(iconFoldersQuery, "Icons not loaded")}
 			/>
 			<MetricCard
 				label="Used by"
 				value={`${usedByCount} ${pluralize(usedByQuery.data?.usedByCount ?? 0, "design")}`}
-				state={getMetricState(usedByQuery, "Could not load usage")}
+				state={getMetricState(usedByQuery, "Usage not loaded")}
 			/>
 			<MetricCard label="Last sync" value={syncedAtLabel} />
 		</div>
@@ -382,8 +382,8 @@ function SystemSettingsSubview({
 	const captureSettingsActionError = (error: unknown) => {
 		setSettingsActionError(
 			error instanceof Error
-				? `Could not save the system settings: ${error.message}`
-				: "Could not save the system settings.",
+				? `System settings not saved: ${error.message}`
+				: "System settings not saved.",
 		);
 	};
 
@@ -740,9 +740,7 @@ export function SystemDetailPane({
 	};
 
 	// The remove error shows inside the dialog, not behind its backdrop.
-	const actionError = renameError
-		? `Could not rename the system: ${renameError}`
-		: null;
+	const actionError = renameError ? `System not renamed: ${renameError}` : null;
 	const isSyncing = result.status === "pending";
 	// A review counts the changes since the last confirmed one; a first review
 	// (nothing confirmed yet), the full theme diff against Tailwind.
@@ -761,12 +759,12 @@ export function SystemDetailPane({
 		? rawTokenDiff
 		: { added: 0, overridden: 0, removed: 0 };
 	const syncErrorMessage = result.error?.message
-		? `Could not sync tokens: ${result.error.message}`
+		? `Tokens not synced: ${result.error.message}`
 		: storedTokensError
-			? `Could not load stored tokens: ${storedTokensError}`
+			? `Stored tokens not loaded: ${storedTokensError}`
 			: null;
 	const syncActionLabel = isSyncing
-		? "Syncing system"
+		? "Syncing system…"
 		: syncState === "error"
 			? "Retry system sync"
 			: syncState === "synced"
@@ -865,7 +863,7 @@ export function SystemDetailPane({
 						) : null}
 						{saveError ? (
 							<Text tone="danger" className="text-xs">
-								Could not confirm the review: {saveError}
+								Review not confirmed: {saveError}
 							</Text>
 						) : null}
 					</>
@@ -902,12 +900,12 @@ export function SystemDetailPane({
 						setRemoveDialogOpen(false);
 					}
 				}}
-				title="Remove system"
+				title={`Remove system "${systemDisplayName}"?`}
 				description={
 					<>
 						Trickroom stops reading tokens from {cssBasename} and deletes the
-						stored tokens, assets, and icons for &quot;{systemDisplayName}
-						&quot;. The CSS file stays on disk. This can't be undone.
+						stored tokens, assets, and icons. The CSS file stays on disk. No
+						undo.
 					</>
 				}
 				icon={<Trash2 className="size-4" aria-hidden="true" />}
@@ -918,7 +916,7 @@ export function SystemDetailPane({
 				onAction={handleDelete}
 				error={
 					deleteError
-						? `Could not remove ${systemDisplayName}: ${deleteError}`
+						? `${systemDisplayName} not removed: ${deleteError}`
 						: null
 				}
 			/>

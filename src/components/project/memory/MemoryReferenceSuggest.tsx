@@ -37,7 +37,7 @@ export function MemoryReferenceSuggest({
 			>
 				{types.length === 0 ? (
 					<Text className="px-2.5 py-2 text-xs text-slate-500">
-						No matching reference types.
+						No matching reference types
 					</Text>
 				) : (
 					types.map((type) => (
@@ -108,11 +108,11 @@ function MemoryReferenceTargetSuggest({
 				</div>
 			) : targetsQuery.isError ? (
 				<Text className="px-2.5 py-2 text-xs text-red-900">
-					Could not load targets.
+					Targets not loaded
 				</Text>
 			) : targets.length === 0 ? (
 				<Text className="px-2.5 py-2 text-xs text-slate-500">
-					No matching targets.
+					No matching targets
 				</Text>
 			) : (
 				targets.map((target) => (

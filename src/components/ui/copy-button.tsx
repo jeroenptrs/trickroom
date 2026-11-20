@@ -46,7 +46,11 @@ function CopyButton({
 			})
 			.catch(() => {
 				setCopied(false);
-				toast.error(`Could not copy ${subject}`);
+				toast.error(
+					subject === "to clipboard"
+						? "Not copied"
+						: `${subject[0]?.toUpperCase() ?? ""}${subject.slice(1)} not copied`,
+				);
 			});
 	};
 

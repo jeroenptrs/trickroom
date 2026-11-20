@@ -72,6 +72,7 @@ Conventions and gotchas:
 - Visual language is brutalist: slate + cyan, square corners, IBM Plex. Don't soften it
 - Concurrent agent sessions may share this working tree: stage and commit by path, never `git stash` or `git add -A`
 - Persisted userland shapes need migrations — see `src/services/` for the revision and migration patterns (e.g. system components)
+- Any text a user reads (UI strings, docs, README, release notes): follow `docs/copywriting.md` for terms, tone of voice, and product facts
 - Design system lint: see `docs/lint.md`; `node bin/trickroom.js lint --check` must pass, and a change that lowers a count commits the new `.trickroom/systems/trickroom/lint-report.json` (never one with `"status": "fail"`)
 
 Full docs in `docs/` — start at `docs/README.md`; `docs/architecture.md` for runtime layout, `docs/mcp.md` for agent tooling, `docs/development.md` for the complete script/packaging reference.

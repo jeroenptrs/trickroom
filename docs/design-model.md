@@ -129,7 +129,7 @@ Tokens are stored verbatim. On write, Trickroom returns non-blocking `referenceW
 
 An annotation is a remark a designer anchors to part of a design (or of a system component) for an agent to act on, and the thread that follows it. Annotations are working state, not design data: they live per user under `~/.trickroom/annotations/` (`TRICKROOM_HOME`), never in `.trickroom`, and are never committed. What should outlast a thread is saved as a memory note.
 
-- **Target**: what the annotation is about. `design`, `board` (`boardId`), `layer` (`boardId`, `elementId`) or `componentNode` (`systemId`, `componentId`, `nodePath`, optionally pinned to `variants`, the variant values it is about). Targets are ids, never pixels. A snapshot taken with it keeps what the designer was looking at: the target's name and its ancestors' names, the component, the design revision, the stage mode and responsive width.
+- **Target**: what the annotation is about. `design`, `board` (`boardId`), `layer` (`boardId`, `elementId`) or `componentNode` (`systemId`, `componentId`, `nodePath`, optionally pinned to `variants`, the variant values it is about). Targets are ids, never pixels. A snapshot taken with it keeps what the designer was looking at: the target's name and its ancestors' names, the component, the design revision, the canvas mode and responsive width.
 - **Entries**: the thread, in order. The designer's remarks, an agent's replies and questions, change records, reverts, dismissals, resolutions, re-anchors and branch moves. Each records who wrote it: `{ role: "human" }` from the editor, `{ role: "agent", sessionId }` from MCP. Nothing a client sends can change that.
 - **Change record**: an entry an agent's design (or component draft) write leaves on each annotation it addressed. It lists the boards and layers the write touched and keeps their state from before the write, so the designer can revert it while those layers are unchanged since. One write that addresses several annotations is one change: reverting it from any of them reverts it for all of them on that branch.
 - **Lifecycle**: `open` (sent), `acknowledged` (an agent session has seen it), `addressed` (an agent changed the design for it), `needs_input` (an agent asked a question), `resolved` and `dismissed` (closed). `open` and `acknowledged` are work for agents; `addressed` and `needs_input` wait on the designer, whose reply opens it again. Agents resolve only when asked; the editor shows those as resolved by an agent until the designer accepts them.
@@ -198,12 +198,12 @@ A chart is a leaf element from the `charts` library. Props are JSON primitives, 
 - `data`: the first column is the x value and the others are series, in slot order. An x value is a time when it is a number (epoch ms) or an ISO date string. Other strings are categories. `null` leaves a gap. An array of objects, such as `[{ "t": 1, "cpu": 40 }]`, is accepted too, so rows can be pasted from code.
 - `form`: `line`, `area`, `bar`, `stacked-bar`, `monthly-bar`, or `sparkline`.
 - `limits` and `markers` have their own props, so moving a reference line does not touch the `data` line in a diff or a merge.
-- `charts/map` takes `[country, value]` rows, where a country is a world-atlas name or numeric id. `steps` splits values over five colours, `view` is `world` or `europe`, `bounds` overrides the view, and `points` adds dots for places too small for the map.
+- `charts/map` takes `[country, value]` rows, where a country is a world-atlas name or numeric id. `steps` splits values over five colors, `view` is `world` or `europe`, `bounds` overrides the view, and `points` adds dots for places too small for the map.
 - A value that does not parse does not fail a write. `design_apply` warns with `INVALID_CHART_PROP`, and the element renders the message instead of a plot.
 
 A chart fills its box, so size it with classes. Size is authored, never in the base classes: Tailwind sorts by value, so a stored `h-8` would lose to a base `h-40`.
 
-The plot's colours are CSS variables that the linked system's stylesheet defines, and Trickroom ships none of its own. See [Chart Variables](tailwind-design-systems.md#chart-variables). A system's dark selector recolours a chart with no re-render, so a board never needs a light and a dark copy.
+The plot's colors are CSS variables that the linked system's stylesheet defines, and Trickroom ships none of its own. See [Chart Variables](tailwind-design-systems.md#chart-variables). A system's dark selector recolors a chart with no re-render, so a board never needs a light and a dark copy.
 
 ## Board, Element, And Layer
 
@@ -303,7 +303,7 @@ public/tailwind/index.global.js
 4. Render child elements for branch role elements.
 5. Render leaf role elements without authored children.
 
-The sidebar is outside the iframe. That keeps editor controls separate from the design stage.
+The sidebar is outside the iframe. That keeps editor controls separate from the design canvas.
 
 Each board is the containing block and portal target for its own overlays, so an open dialog or sheet positions against its board instead of the editor pane. This is render-time only and changes nothing in the design file. See [Stage Overlay Containment](architecture.md#stage-overlay-containment).
 

@@ -111,7 +111,7 @@ export function CommandMenu() {
 		mutationFn: closeProject,
 		onSuccess: () => window.location.assign("/"),
 		onError: (error) => {
-			toast.error("Could not close the project", {
+			toast.error("Project not closed", {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},
@@ -123,7 +123,7 @@ export function CommandMenu() {
 		mutationFn: signOut,
 		onSuccess: () => window.location.assign("/pair"),
 		onError: (error) => {
-			toast.error("Could not sign out", {
+			toast.error("Not signed out", {
 				description: error instanceof Error ? error.message : undefined,
 			});
 		},
@@ -247,7 +247,7 @@ export function CommandMenu() {
 	const switchToProject = (project: { name: string; projectRoot: string }) => {
 		openMutation.mutate(project.projectRoot, {
 			onError: (error) => {
-				toast.error(`Could not open ${project.name}`, {
+				toast.error(`${project.name} not opened`, {
 					description: error instanceof Error ? error.message : undefined,
 				});
 			},
@@ -371,7 +371,11 @@ export function CommandMenu() {
 							/>
 
 							<CommandList>
-								<CommandEmpty>No matching commands</CommandEmpty>
+								<CommandEmpty>
+									{page === "switcher"
+										? "No matching projects or branches"
+										: "No matching commands"}
+								</CommandEmpty>
 
 								{page === "home" ? (
 									<>
@@ -645,7 +649,7 @@ export function CommandMenu() {
 							/>
 							{openErrorMessage ? (
 								<Alert variant="panel">
-									Could not open {path.trim()}: {openErrorMessage}
+									{path.trim()} not opened: {openErrorMessage}
 								</Alert>
 							) : null}
 							<div className="flex">

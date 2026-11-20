@@ -175,7 +175,7 @@ export function getTrickroomBuiltinMenuItems(): {
 	const sections = getRegistryPickerSections("trickroom", "");
 	const components =
 		sections
-			.find((section) => section.title === "Components")
+			.find((section) => section.title === "Elements")
 			?.items.filter(
 				(item) =>
 					item.type !== "component" ||
@@ -363,10 +363,10 @@ export function AddLayerCommandMenu({
 						<CommandList>
 							<CommandEmpty>
 								{page === "root"
-									? "No matching commands."
+									? "No matching commands"
 									: page === "libraries"
-										? "No matching elements."
-										: "No matching layers."}
+										? "No matching elements"
+										: "No matching layers"}
 							</CommandEmpty>
 
 							{page === "root" ? (
@@ -492,7 +492,7 @@ export function AddLayerCommandMenu({
 									{systemComponentsQuery.isError ? (
 										<div className="px-3 py-2">
 											<RetryError
-												message="Could not load your system's components"
+												message="Components not loaded"
 												reason={errorReason(systemComponentsQuery.error)}
 												retrying={systemComponentsQuery.isFetching}
 												onRetry={() => void systemComponentsQuery.refetch()}
@@ -513,8 +513,8 @@ export function AddLayerCommandMenu({
 												}
 											>
 												{section.groupPath
-													? `Your system - ${section.groupPath}`
-													: "Your system"}
+													? `System: ${section.groupPath}`
+													: "System"}
 											</TypeGroupLabel>
 											{section.items.map((item) => {
 												const allowed = Boolean(
@@ -640,15 +640,15 @@ export function AddLayerCommandMenu({
 							<CommandFooterLeft>
 								<CommandFooterHint>
 									<CommandKeyBadge>↑↓</CommandKeyBadge>
-									<span>navigate</span>
+									<span>Navigate</span>
 								</CommandFooterHint>
 								<CommandFooterHint>
 									<CommandKeyBadge>↵</CommandKeyBadge>
-									<span>{page === "root" ? "run" : "insert"}</span>
+									<span>{page === "root" ? "Run" : "Insert"}</span>
 								</CommandFooterHint>
 								<CommandFooterHint>
 									<CommandKeyBadge>esc</CommandKeyBadge>
-									<span>{page === "root" ? "close" : "back"}</span>
+									<span>{page === "root" ? "Close" : "Back"}</span>
 								</CommandFooterHint>
 							</CommandFooterLeft>
 							{page === "root" ? null : (

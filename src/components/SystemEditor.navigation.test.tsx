@@ -575,7 +575,7 @@ describe("SystemEditor URL navigation", () => {
 			const router = mount("/system/core?component=cmp_a");
 			await flush();
 			await click("Settings");
-			await click("Delete component");
+			await click("Delete component…");
 			// The dialog's action, which the dialog's buttons come first for.
 			await click("Delete component");
 			await act(async () => {

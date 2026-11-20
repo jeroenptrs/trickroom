@@ -162,7 +162,7 @@ function SystemHeaderContent({
 					to={{ search: buildSystemTabSearch("tokens") }}
 					replace
 					className="shrink-0 focus-visible:outline-none focus-visible:inset-shadow-[0_0_0_1px] focus-visible:inset-shadow-cyan-500"
-					title="Open the Tokens tab"
+					title="Open Tokens tab"
 				>
 					<SystemStatusBadge state={systemStatus} />
 				</Link>
@@ -574,7 +574,7 @@ export function SystemEditor() {
 			<SystemEditorFallback onClose={() => navigate("/")}>
 				<EmptyState
 					icon={TriangleAlert}
-					title="Could not load this system"
+					title="System not loaded"
 					description={systemsQuery.error.message}
 					action={
 						<Button

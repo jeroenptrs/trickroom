@@ -1,6 +1,6 @@
 # Agents And MCP
 
-Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 26 tools in a few families, one write tool for design content, a guide the agent reads once per session, the designer's [annotations](#annotations) delivered with the results agents already read, and a way for agents to report friction with the tools themselves (`feedback_submit`).
+Trickroom includes a stdio MCP server so agents can read and change design files through structured tools instead of raw file edits. Coding agents are its main users, so there are only 27 tools in a few families, one write tool for design content, a guide the agent reads once per session, the designer's [annotations](#annotations) delivered with the results agents already read, and a way for agents to report friction with the tools themselves (`feedback_submit`).
 
 ## Start MCP
 
@@ -161,7 +161,7 @@ This release replaced the 74 previous tools with 22 (`feedback_submit`, added la
 | `addMemoryNote`, `updateMemoryNote`, `deleteMemoryNote` | `memory_write({ action: "add" \| "update" \| "delete" })` |
 | (new) | `editor_context`, `editor_focus` |
 
-Behaviour that changed with the fold:
+Behavior that changed with the fold:
 
 - Single edits share the batch's checks and response. A write is refused only for errors it adds (`PLAN_LEAVES_ERRORS`); errors the design already had are counted in `preExistingErrorCount` and do not block it.
 - `copySubtree` takes the batch step's parameters: the edited design is the target (`designFileId`), `sourceDesignFileId` defaults to it, and `includeIdMap: true` returns the id map.
@@ -202,7 +202,7 @@ Defaults: `read-write`, every design file, every component, no audit log.
 
 - Reads enforce `allowedDesignFileIds`. The guide's registry and recipes topics list only allowed components.
 - Writes enforce `mode`, `allowedDesignFileIds` and `allowedComponents` (every component a step inserts, moves, copies or expands).
-- `allowedComponents` governs what a write touches, not what a designer already authored. `design_apply` checks the elements a step inserts, updates, moves or deletes and a move's new parent, never the rest of the design. Component writes follow the same rule. Each write is compared node by node, across the template and every slot's default children, with the template it starts from. Both sides are compared in the form the manifest stores them (its own normalisers, then key-sorted), so key order and normalised whitespace never count as a change. The write is refused with `MCP_COMPONENT_NOT_ALLOWED` when it does any of the following:
+- `allowedComponents` governs what a write touches, not what a designer already authored. `design_apply` checks the elements a step inserts, updates, moves or deletes and a move's new parent, never the rest of the design. Component writes follow the same rule. Each write is compared node by node, across the template and every slot's default children, with the template it starts from. Both sides are compared in the form the manifest stores them (its own normalizers, then key-sorted), so key order and normalized whitespace never count as a change. The write is refused with `MCP_COMPONENT_NOT_ALLOWED` when it does any of the following:
   - adds or removes a node of a disallowed component;
   - changes such a node: its own fields, its component, or its variant and compound classes, each with the condition it applies under (moving a compound class to another `when` changes the node, and so does reordering the compounds that target it, since later ones win);
   - moves such a node, or moves any node into or within a parent of a disallowed component.
@@ -446,7 +446,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 | `registry` | Raw registry elements: roles, controls (options, defaults, deprecations), `baseClassName`. Filter with `library` and `name`. |
 | `tokens` | Choosing classes or fixing class warnings. |
 | `resources` | Images and icons from the design system. |
-| `charts` | Placing a chart or world map: forms, data, limits, sizing, the colour variables, and a worked `design_apply` call. |
+| `charts` | Placing a chart or world map: forms, data, limits, sizing, the color variables, and a worked `design_apply` call. |
 | `overlays` | Boards with an open dialog, sheet, popover or select. |
 | `validation` | Warnings, dry-runs and error hints. |
 | `memory` | Reading and writing memory notes, and the `{{type:id}}` references they embed (boards and layers included). |
@@ -461,7 +461,7 @@ Recovery: call the reads in `next` (a `design_read` with `boardId` for each stal
 
 `design_screenshot` renders through Trickroom's capture route and returns one short text block (what each image is, warnings) and one PNG image block per capture; several captures each get a label before their image.
 
-- `boardId`: one board, an array, or `"all"`. `elementId`: one element or an array, cropped to the element with its board inferred. `component`: a system component without a design (`componentId` or slug, `systemName`, `variants`, `matrix` with one axis or `[rowAxis, columnAxis]` rendering every combination as one labelled grid, at most 64 cells; `source: "draft"`).
+- `boardId`: one board, an array, or `"all"`. `elementId`: one element or an array, cropped to the element with its board inferred. `component`: a system component without a design (`componentId` or slug, `systemName`, `variants`, `matrix` with one axis or `[rowAxis, columnAxis]` rendering every combination as one labeled grid, at most 64 cells; `source: "draft"`).
 - `viewport`: `mobile` (390x844), `tablet` (768x1024), `desktop` (1440x900, the default), a width in CSS px (height 900) or `{ width, height }`; an array (up to 6) captures each in one call. Breakpoint variants resolve against each viewport.
 - `theme`: `"light"` (default), `"dark"`, or both.
 - `scale`: output pixels per CSS pixel, 0.25 to 2. Boards default to 0.5 (a quarter of the image tokens; layout, spacing and body text stay readable); elements and components to 1.
@@ -593,7 +593,7 @@ With `round: true`, it waits on the designer's round and returns the first of th
 
 `round.counts` is `{ total, closed, agentWork, humanWork, byStatus }` over the round's annotations (one cleared since counts as closed). Every `next` names the exact follow-up call. After `"work"`, `"verdict"` or `"timeout"` it is the same watch again with `round: true`; after `"closed"` it is to finish the live annotations that are your work and end the turn; after `"idle"` it is to go on with the task without waiting. Verdicts and work also arrive while it waits, after the same 1.5 s batch window.
 
-Either way, it watches the container's annotation folder and checks the store at least every second, so it works in the stdio process with no Trickroom server running. A cancelled request stops waiting (`status: "cancelled"`) and releases the watcher; clients that send a `progressToken` get a progress notification every 10 seconds. Component annotations also arrive with `component_read`.
+Either way, it watches the container's annotation folder and checks the store at least every second, so it works in the stdio process with no Trickroom server running. A canceled request stops waiting (`status: "cancelled"`) and releases the watcher; clients that send a `progressToken` get a progress notification every 10 seconds. Component annotations also arrive with `component_read`.
 
 ### Rounds
 
@@ -800,7 +800,7 @@ With `mcp.auditLog: true`, MCP appends JSON Lines to `.trickroom/audit-log.jsonl
 - `src/mcp/tools/context.ts`: per-session state (selected project, project resolver, screenshot capture, editor channel, session id, call history and the annotation session) and the `withProjectContext` / `withPolicyErrorHandling` wrappers.
 - `src/mcp/call-history.ts`: records every `tools/call` (outcome, duration, sizes) in the session's ring buffer and the optional call log, and adds `feedbackHint` to a tool's second consecutive failure. `src/mcp/tools/feedback.ts` registers `feedback_submit`; `src/app-state/feedback.ts` holds the entry format and the JSON Lines storage, shared with `src/cli/feedback.ts` (`trickroom feedback`).
 - `src/mcp/tools/results.ts` (including the `REVISION_MISMATCH` result with stale boards and recovery reads), `schemas.ts`, `operation-schemas.ts`, `annotations.ts` (tool annotation presets and the `_meta` keys; not the designer's annotations), `mutation-support.ts` (the read, revision check and write shared by every design write, and auditing), `input-validation.ts` (one line per invalid argument).
-- `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalogue (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
+- `src/mcp/design-operations.ts` and `src/mcp/operation-plan.ts`: the operation catalog (`DESIGN_OPERATION_PARAMETERS`), parameter validation and the executor behind `design_apply` and `design_validate`.
 - `src/mcp/payloads/`: payload builders the tools call (reads, validation and apply, guide, systems, system components, projects). `design-revisions.ts` holds the board-level revision helpers (which boards changed since a revision, whether one board is current, which boards a plan touched); `component-extraction.ts` the extract-to-component flow.
 - `src/mcp/guide/`: the guide's core and topics.
 - `src/mcp/prompts.ts`, `src/mcp/server-instructions.ts`, `src/mcp/resource-handlers.ts`: prompts, server instructions and `trickroom://` resources.

@@ -134,7 +134,7 @@ function ReplyComposer({ annotation }: { annotation: AnnotationView }) {
 					onClick={() => void send()}
 					title={`Send the reply (${formatShortcut(["Mod", "Enter"])})`}
 				>
-					Reply
+					{sending ? "Replying…" : "Reply"}
 				</Button>
 			</div>
 		</div>
@@ -440,7 +440,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 											variant="ghost"
 											className={actionButton}
 											disabled={busy || savedMemory}
-											title="Add a memory note with the remark, the final reply and a reference to its target"
+											title="Add a memory note with the remark, the final reply, and a reference to its target"
 											onClick={() =>
 												void run(async () => {
 													if (await onSaveMemory(annotation)) {
@@ -450,7 +450,7 @@ export const AnnotationThread = memo(function AnnotationThread({
 											}
 										>
 											{savedMemory
-												? "Saved as memory note"
+												? "Memory note saved"
 												: "Save as memory note"}
 										</Button>
 									) : null}

@@ -265,7 +265,7 @@ function ComponentWorkspaceActions({
 		onMutate: () => setPublishError(null),
 		onError: async (error) => {
 			setPublishError(
-				error instanceof Error ? error.message : "Could not publish the draft.",
+				error instanceof Error ? error.message : "Draft not published.",
 			);
 			if (componentId) {
 				await invalidateSystemComponents(
@@ -368,7 +368,7 @@ function ComponentWorkspaceActions({
 						onClick={() => saveDraftMutation.mutate()}
 					>
 						<Save className="size-3.5" aria-hidden="true" />
-						{saveDraftMutation.isPending ? "Saving" : "Save draft"}
+						{saveDraftMutation.isPending ? "Saving…" : "Save draft"}
 					</Button>
 					<DisabledReason
 						reason={componentQuery.isPending ? null : publishBlockedReason}
@@ -386,7 +386,7 @@ function ComponentWorkspaceActions({
 							onClick={() => publishDraftMutation.mutate()}
 						>
 							<UploadCloud className="size-3.5" aria-hidden="true" />
-							{publishDraftMutation.isPending ? "Publishing" : "Publish draft"}
+							{publishDraftMutation.isPending ? "Publishing…" : "Publish draft"}
 						</Button>
 					</DisabledReason>
 				</div>
@@ -537,7 +537,7 @@ function ComponentRailEmptyState() {
 		<div className="flex flex-1 items-center justify-center px-4 py-10">
 			<EmptyState
 				size="sm"
-				title="No components yet"
+				title="No components"
 				description="Name a component above to create it."
 			/>
 		</div>
@@ -571,15 +571,15 @@ function DeleteComponentDialog({
 			onOpenChange={(next) => {
 				if (!isPending) onOpenChange(next);
 			}}
-			title={`Delete ${component.name}?`}
+			title={`Delete component "${component.name}"?`}
 			description={
 				component.hasPublished
-					? `${usage}Deleting it removes all published versions and can't be undone.`
-					: `${usage}This can't be undone.`
+					? `${usage}Deletes all published versions. No undo.`
+					: `${usage}No undo.`
 			}
 			icon={<Trash2 className="size-4" aria-hidden="true" />}
 			tone="destructive"
-			actionLabel={isPending ? "Deleting" : "Delete component"}
+			actionLabel={isPending ? "Deleting…" : "Delete component"}
 			actionDisabled={isPending}
 			error={error}
 			onAction={onDelete}
@@ -611,7 +611,7 @@ function ComponentRailSkeleton() {
 function ComponentRailNoMatches() {
 	return (
 		<div className="px-3 py-4">
-			<EmptyState size="compact" title="No components match" />
+			<EmptyState size="compact" title="No matching components" />
 		</div>
 	);
 }
@@ -818,9 +818,7 @@ export function SystemEditorComponentsRail({
 		onMutate: () => setCreateError(null),
 		onError: (error) => {
 			setCreateError(
-				error instanceof Error
-					? error.message
-					: "Could not create the component.",
+				error instanceof Error ? error.message : "Component not created.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -862,7 +860,7 @@ export function SystemEditorComponentsRail({
 		onMutate: () => setCopyDraftError(null),
 		onError: (error) => {
 			setCopyDraftError(
-				error instanceof Error ? error.message : "Could not create the draft.",
+				error instanceof Error ? error.message : "Draft not created.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -891,9 +889,7 @@ export function SystemEditorComponentsRail({
 		onMutate: () => setDeleteError(null),
 		onError: (error) => {
 			setDeleteError(
-				error instanceof Error
-					? error.message
-					: "Could not delete the component.",
+				error instanceof Error ? error.message : "Component not deleted.",
 			);
 		},
 		onSuccess: async (response) => {
@@ -1030,7 +1026,7 @@ export function SystemEditorComponentsRail({
 			<div className="flex min-h-0 flex-1 flex-col gap-2 px-3 py-4">
 				<Alert variant="panel">
 					<span className="block text-sm font-medium">
-						Could not load components
+						Components not loaded
 					</span>
 					<span className="mt-1 block text-xs">
 						{(componentsQuery.error as Error).message}
@@ -1121,7 +1117,7 @@ export function SystemEditorComponentsRail({
 											}}
 										>
 											<Trash2 className="size-3.5" aria-hidden="true" />
-											Delete component
+											Delete component…
 										</Button>
 										<DeleteComponentDialog
 											component={selectedSummary}
@@ -1195,7 +1191,7 @@ export function SystemEditorComponentsRail({
 						variant="formCompact"
 						className="w-full px-7"
 						aria-label="Search components"
-						placeholder="Search components"
+						placeholder="Search components…"
 						value={componentFilter}
 						onChange={(event) => setComponentFilter(event.target.value)}
 					/>
@@ -1223,7 +1219,7 @@ export function SystemEditorComponentsRail({
 						onClick={handleCreateDraft}
 					>
 						<Plus className="size-3.5" aria-hidden="true" />
-						{createDraftMutation.isPending ? "Creating" : "Create"}
+						{createDraftMutation.isPending ? "Creating…" : "Create"}
 					</Button>
 				</div>
 			</div>
@@ -1250,7 +1246,7 @@ export function SystemEditorComponentsRail({
 			{usageQuery.isError && components.length > 0 ? (
 				<div className="mx-2 mt-2 flex items-start gap-2">
 					<Alert variant="panel" tone="warning" className="min-w-0 flex-1">
-						Could not check where components are used.
+						Component usage not loaded
 					</Alert>
 					<Button
 						type="button"

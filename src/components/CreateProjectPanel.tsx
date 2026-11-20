@@ -267,7 +267,7 @@ export function CreateProjectPanel() {
 									}}
 									type="text"
 									variant="form"
-									placeholder="System name"
+									placeholder="Acme Web"
 									value={systemName}
 									onChange={(event) => setSystemName(event.target.value)}
 									onBlur={() => markTouched("systemName")}
@@ -318,13 +318,13 @@ export function CreateProjectPanel() {
 							</label>
 						</div>
 					) : (
-						<Text variant="meta">Optional. You can add a system later.</Text>
+						<Text variant="meta">Optional.</Text>
 					)}
 				</div>
 
 				{createProjectMutation.isError ? (
 					<Alert variant="panel">
-						Could not create {name.trim()}: {createErrorMessage}
+						{name.trim()} not created: {createErrorMessage}
 					</Alert>
 				) : null}
 			</div>

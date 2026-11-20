@@ -90,7 +90,7 @@ export function AnnotationDraftRow({
 					);
 				}}
 			>
-				Send
+				{sending ? "Sending…" : "Send"}
 			</Button>
 		</div>
 	);
@@ -141,7 +141,9 @@ export function AnnotationBulkActions({
 					}}
 					title={`Send every draft ${scopeLabel}`}
 				>
-					Send this board's drafts ({drafts.length})
+					{sendingDrafts
+						? "Sending…"
+						: `Send this board's drafts (${drafts.length})`}
 				</Button>
 			) : null}
 			{addressed.length > 0 ? (

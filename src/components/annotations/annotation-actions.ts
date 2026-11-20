@@ -85,6 +85,7 @@ export async function reportAnnotationWriteError(
 	error: unknown,
 	annotation: AnnotationRef | null,
 	nameOf?: LayerNamer,
+	fallbackTitle = "Annotation not saved",
 ) {
 	if (isAnnotationScopeChanged(error)) {
 		// The request layer already handed the new scope to the editor,
@@ -93,15 +94,15 @@ export async function reportAnnotationWriteError(
 			| { branch?: unknown }
 			| undefined;
 		const branch = typeof scope?.branch === "string" ? scope.branch : null;
-		toast.warning("The checkout changed: nothing was saved", {
+		toast.warning("Checkout changed: nothing saved", {
 			id: "annotation-scope-changed",
-			description: `${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}; its annotations are shown instead. Unsent text is kept.`,
+			description: `${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}. Its annotations are shown instead. Unsent text is kept.`,
 		});
 		return;
 	}
 	if (isAnnotationRevisionMismatch(error) && annotation) {
 		await refresh(annotation);
-		toast.warning("This annotation changed meanwhile", {
+		toast.warning("Annotation changed on disk", {
 			id: `annotation-stale-${annotation.id}`,
 			description: "It now shows its current state. Check it and try again.",
 		});
@@ -112,14 +113,14 @@ export async function reportAnnotationWriteError(
 		error.code === "CHANGED_SINCE"
 	) {
 		const layers = layerList(error, nameOf);
-		toast.error("Could not revert", {
+		toast.error("Change not reverted", {
 			description: layers
 				? `These layers changed after it: ${layers}.`
 				: "Revert works only while the layers are as the change left them.",
 		});
 		return;
 	}
-	toast.error("Annotation not saved", {
+	toast.error(fallbackTitle, {
 		description: error instanceof Error ? error.message : String(error),
 	});
 }
@@ -233,7 +234,7 @@ async function sendBatch(
 					id: "annotation-drafts-interrupted",
 					description:
 						interrupted.code === "SCOPE_CHANGED"
-							? `The checkout changed while sending. ${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}; its annotations are shown instead.`
+							? `The checkout changed while sending. ${branch && branch !== "*" ? `Branch ${branch} is checked out now` : "Another checkout is active now"}. Its annotations are shown instead.`
 							: interrupted.error,
 				},
 			);
@@ -329,7 +330,7 @@ export async function closeOpenRound(
 		});
 		return answer.round;
 	} catch (error) {
-		await reportAnnotationWriteError(error, null);
+		await reportAnnotationWriteError(error, null, undefined, "Round not closed");
 		return null;
 	}
 }
@@ -428,7 +429,7 @@ export async function resolveAnnotations(
 			}),
 		);
 		toast.success(
-			`${verb} ${resolved.length} ${resolved.length === 1 ? "annotation" : "annotations"}`,
+			`${resolved.length} ${resolved.length === 1 ? "annotation" : "annotations"} ${verb.toLowerCase()}`,
 			{
 				id: "annotations-bulk-resolve",
 				description:

@@ -226,7 +226,7 @@ export function LintFindingsView({
 						variant="formCompact"
 						className="w-full px-7"
 						aria-label="Search findings"
-						placeholder="Search messages and locations"
+						placeholder="Search messages and locations…"
 						value={filter.text}
 						onChange={(event) => update({ text: event.target.value })}
 					/>
@@ -252,8 +252,8 @@ export function LintFindingsView({
 				<Card edge="inset" className="px-4 py-6">
 					<Text variant="meta">
 						{report.findings.length === 0
-							? "This report has no findings."
-							: "No findings match the filters."}
+							? "No findings"
+							: "No matching findings"}
 					</Text>
 				</Card>
 			) : (

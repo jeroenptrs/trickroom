@@ -16,8 +16,8 @@ const STATES: Record<
 	idle: { label: "Not synced", tone: "neutral" },
 	synced: { label: "Synced", tone: "success" },
 	review: { label: "Review required", tone: "warning" },
-	syncing: { label: "Syncing", tone: "info" },
-	error: { label: "Could not sync", tone: "danger" },
+	syncing: { label: "Syncing…", tone: "info" },
+	error: { label: "Sync failed", tone: "danger" },
 };
 
 export function systemStatusLabel(state: SystemStatusBadgeState) {

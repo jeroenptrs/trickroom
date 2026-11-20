@@ -801,7 +801,7 @@ export function ComponentDraftProperties({
 					</Text>
 				</header>
 				<Text variant="meta" render={<p />} className="p-3">
-					Select a layer to edit it.
+					Select a layer.
 				</Text>
 			</div>
 		);

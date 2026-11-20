@@ -132,7 +132,7 @@ To sign a browser in, open the service's address. It shows the pairing page. The
 trickroom pair
 ```
 
-The code works once, for 2 minutes. The browser then stays signed in for 30 days after its last use; `trickroom pair --days 7` asks for a shorter session. When the public URL is configured, the command also prints a link that pairs without typing.
+The code works once, for 2 minutes. The browser then stays signed in for 30 days after its last use. `trickroom pair --days 7` asks for a shorter session. When the public URL is configured, the command also prints a link that pairs without typing.
 
 ```sh
 trickroom sessions                 # the browsers signed in, with their ids
@@ -144,7 +144,7 @@ A revoked browser is refused within 5 seconds. **Sign out** in the command menu 
 
 The token in `server-token` is for automation. The ready record on stdout (`journalctl --user -u trickroom`) has a bootstrap URL with it, which still signs a browser in, with a cookie that does not expire. Prefer pairing for browsers.
 
-Each browser tab holds its own checkout under `/p/<locationId>/`, so one server shows several projects and branches at once. `/` is the home screen.
+Each browser tab holds its own checkout under `/p/<locationId>/`, so one server shows multiple projects and branches at once. `/` is the home screen.
 
 ### Public host
 
@@ -244,9 +244,9 @@ plugin/spa-server/         Local Vite SPA/Hono server plugin
 public/tailwind/           Browser Tailwind runtime asset
 scripts/                   Build-time scripts
 src/app-state/             Per-user project registry helpers
-src/components/            React UI, editor chrome, stage, and primitives
-src/hooks/                 Stage navigation and Tailwind sync hooks
-src/iframe/                Iframe shell used by the design stage
+src/components/            React UI, editor chrome, canvas, and primitives
+src/hooks/                 Canvas navigation and Tailwind sync hooks
+src/iframe/                Iframe shell used by the design canvas
 src/libraries/             Component registry definitions
 src/lint/                  Design system lint engine (contract, rules, source model, report, ratchet)
 src/mcp/                   MCP server, governance, diagnostics, and tests

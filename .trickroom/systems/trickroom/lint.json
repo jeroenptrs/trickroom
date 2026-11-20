@@ -10,5 +10,127 @@
 			"**/*.test.tsx",
 			"src/test-utils/**"
 		]
+	},
+	"rules": {
+		"code.text-pattern": {
+			"options": {
+				"patterns": [
+					{
+						"pattern": "·",
+						"message": "No middle dot in a string. Use layout, a comma, or a colon."
+					},
+					{
+						"pattern": "—",
+						"message": "No em dash in a string. Use layout, a comma, or a colon."
+					},
+					{
+						"pattern": "→",
+						"message": "No arrow in a string. Use an icon or a word."
+					},
+					{
+						"pattern": "\\d\\s*–\\s*\\d",
+						"regex": true,
+						"message": "Write a range with \"to\"."
+					},
+					{
+						"pattern": "\\.\\.\\.",
+						"regex": true,
+						"message": "Use the single ellipsis character."
+					},
+					{
+						"pattern": "\\(s\\)",
+						"regex": true,
+						"message": "Use the pluralize helper, not \"(s)\"."
+					},
+					{
+						"pattern": "!$",
+						"regex": true,
+						"message": "No exclamation marks."
+					},
+					{
+						"pattern": "\\bsuccessfully\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "Cut it. The result says it."
+					},
+					{
+						"pattern": "\\b(please|sorry|oops)\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "No character: no please, sorry, or oops."
+					},
+					{
+						"pattern": "\\b(shortly|just a moment|hang tight)\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "No promises about time. Say what is in progress."
+					},
+					{
+						"pattern": "^(Could not|Couldn't|Unable to|Failed to)\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "Write a failure as \"{Object} not {past participle}\", with the cause in the body."
+					},
+					{
+						"pattern": "^Something went wrong",
+						"regex": true,
+						"flags": "i",
+						"message": "Name the failed result and the cause."
+					},
+					{
+						"pattern": "^Are you sure",
+						"regex": true,
+						"flags": "i",
+						"message": "The dialog title is the action and the name, as a question."
+					},
+					{
+						"pattern": "^(OK|Okay|Yes|Submit|Confirm)$",
+						"regex": true,
+						"message": "A button is a verb and a noun."
+					},
+					{
+						"pattern": "(can't|cannot|can not) be undone",
+						"regex": true,
+						"flags": "i",
+						"message": "Write \"No undo.\""
+					},
+					{
+						"pattern": "^No .+ yet\\.?$",
+						"regex": true,
+						"message": "An empty state title is \"No {plural noun}\"."
+					},
+					{
+						"pattern": "\\bdesign system\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "The term is \"system\"."
+					},
+					{
+						"pattern": "\\bstage\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "The term is \"canvas\"."
+					},
+					{
+						"pattern": "\\bproperties panel\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "The term is \"inspector\"."
+					},
+					{
+						"pattern": "^(Show|Hide) (the )?(layers|properties|sidebar|inspector)\\b",
+						"regex": true,
+						"flags": "i",
+						"message": "Panel buttons say \"Expand\" and \"Collapse\"."
+					},
+					{
+						"pattern": "\\b(colour|centre|centred|behaviour|grey|catalogue)",
+						"regex": true,
+						"flags": "i",
+						"message": "American spelling."
+					}
+				]
+			}
+		}
 	}
 }
