@@ -8,7 +8,7 @@ import {
 import { DesignFileServiceError } from "../services/design-file-service";
 import { McpPolicyError } from "./governance";
 import {
-	listDesignFilesPayload,
+	listDesignResourcesPayload,
 	readDesignSummaryPayload,
 	toDesignFileResources,
 } from "./payloads/design-reads";
@@ -36,7 +36,7 @@ export const registerDesignResourceHandlers = (ctx: McpToolContext) => {
 		const resourceGroups = await Promise.all(
 			contexts.map(async (context) => {
 				try {
-					const payload = await listDesignFilesPayload(context);
+					const payload = await listDesignResourcesPayload(context);
 					return toDesignFileResources(context, payload);
 				} catch {
 					return [];
