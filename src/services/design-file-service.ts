@@ -37,6 +37,7 @@ import {
 	unsupportedDesignVersionMessage,
 } from "./design-file-schema";
 import type {
+	DesignFileHeader,
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
@@ -141,6 +142,7 @@ const revisionMismatchMessage = (mismatch: DesignRevisionMismatch) => {
 };
 
 export type {
+	DesignFileHeader,
 	DesignFileRevision,
 	DesignFileSummary,
 } from "./design-file-service.types";
@@ -1259,6 +1261,50 @@ export class DesignFileService {
 		);
 
 		return summaries.filter((summary) => summary !== null);
+	}
+
+	/**
+	 * Every design's header (id, name, location), from `design.json` alone.
+	 * Unlike `listDesignSummaries`, this reads no board file, so it fits
+	 * listings that span many checkouts.
+	 */
+	async listDesignHeaders(): Promise<DesignFileHeader[]> {
+		const designIds = await this.listDesignIds();
+		const headers = await Promise.all(
+			designIds.map((designId) =>
+				this.readDesignHeader(designId).catch(() => null),
+			),
+		);
+		return headers.filter((header) => header !== null);
+	}
+
+	/**
+	 * One design's header, or null when the folder holds no design files.
+	 * Writes replace `design.json` atomically, so a lock-free read sees a
+	 * whole manifest. A design still in the single-file layout has no
+	 * manifest: its summary (cached) gives the name.
+	 */
+	async readDesignHeader(designId: string): Promise<DesignFileHeader | null> {
+		const paths = this.getDesignPaths(designId);
+		const manifest = await readTextOrNull(paths.manifest);
+		if (manifest !== null) {
+			let name: unknown;
+			try {
+				const value = JSON.parse(manifest);
+				name = isRecord(value) ? value.name : undefined;
+			} catch {
+				// Listed by id, like a design whose summary cannot be read.
+			}
+			return {
+				uuid: designId,
+				file: this.describeLocation(paths, "folder").file,
+				name: typeof name === "string" ? name : designId,
+			};
+		}
+		const summary = await this.readDesignSummary(designId);
+		return summary
+			? { uuid: summary.uuid, file: summary.file, name: summary.name }
+			: null;
 	}
 
 	/**

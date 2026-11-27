@@ -711,7 +711,7 @@ trickroom://proj/<locationId>/design/<slug>--<designId>
 trickroom://proj/<locationId>/design/<designId>
 ```
 
-Reading a design resource returns `payloadKind: "design-summary"`: the design header, board index with element counts, and suggested reads; never the raw design JSON. The resource list covers every registered MCP-enabled project; prefer `locationId` in URIs. The server sends `resources/list_changed` on project selection, design creation, renames, and outside changes to the design directory or registry.
+Reading a design resource returns `payloadKind: "design-summary"`: the design header, board index with element counts, and suggested reads; never the raw design JSON. The resource list covers every registered MCP-enabled project and reads only each design's `design.json` (id and name), never its boards, so listing many worktrees does not load their designs. A design loads when a resource is read or a tool reads it. Prefer `locationId` in URIs. The server sends `resources/list_changed` on project selection, design creation, renames, and outside changes to the design directory or registry.
 
 ## Prompts
 

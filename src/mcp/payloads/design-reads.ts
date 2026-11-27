@@ -27,6 +27,7 @@ import {
 	getElementReadContext,
 	getNodeName,
 	getRecipeAttachmentSummaries,
+	listVisibleDesignHeaders,
 	listVisibleDesignSummaries,
 	type NodeReadDetail,
 	readBoundedTree,
@@ -46,8 +47,9 @@ export const readSubtreeDefaults = { depth: 3, maxNodes: 100 };
 export const readDesignGraphDefaults = { depth: null, maxNodes: 100 };
 
 /**
- * Lists design files with ids, names and revisions only: the shape resources
- * and policy checks need. design_list adds boards, systems and memory counts.
+ * Lists design files with ids, names and revisions only: the shape policy
+ * checks and design_list start from. It loads every design, so it is for the
+ * selected project alone. Resources use `listDesignResourcesPayload`.
  */
 export const listDesignFilesPayload = async (
 	context: TrickroomMcpServerContext,
@@ -69,6 +71,25 @@ export const listDesignFilesPayload = async (
 			...(designFile.warnings !== undefined
 				? { warnings: designFile.warnings }
 				: {}),
+		})),
+	};
+};
+
+/**
+ * Lists design files with ids and names, read from each design's
+ * `design.json` and no board file. The resource list covers every
+ * registered checkout, so loading whole designs there holds every
+ * worktree's designs in memory at once.
+ */
+export const listDesignResourcesPayload = async (
+	context: TrickroomMcpServerContext,
+) => {
+	const designFiles = await listVisibleDesignHeaders(context);
+	return {
+		project: getProjectReference(context),
+		designFiles: designFiles.map((designFile) => ({
+			id: designFile.uuid,
+			name: designFile.name,
 		})),
 	};
 };
@@ -196,7 +217,7 @@ export const listDesignFilesToolPayload = async (
 
 export const toDesignFileResources = (
 	context: TrickroomMcpServerContext,
-	payload: Awaited<ReturnType<typeof listDesignFilesPayload>>,
+	payload: Awaited<ReturnType<typeof listDesignResourcesPayload>>,
 ): Resource[] => {
 	const project = getProjectDetails(context);
 	const locationId = getDesignResourceLocationId(context) ?? project.locationId;

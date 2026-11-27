@@ -581,15 +581,34 @@ export const listVisibleDesignSummaries = async (
 	);
 };
 
+/**
+ * Headers (id, name) of the designs this session may read, without loading
+ * any board: what the resource list needs for every registered checkout.
+ */
+export const listVisibleDesignHeaders = async (
+	context: TrickroomMcpServerContext,
+) => {
+	const policy = getMcpPolicy(context.config);
+	const headers = await createDesignFileService(
+		context.projectRoot,
+	).listDesignHeaders();
+	return headers.filter(
+		(header) =>
+			policy.allowedDesignFileIds === null ||
+			policy.allowedDesignFileIds.has(header.uuid),
+	);
+};
+
 const maxListedDesignsInError = 25;
 
 const createDesignNotFoundError = async (
 	context: TrickroomMcpServerContext,
 	designFileId: string,
 ) => {
-	const designs = (await listVisibleDesignSummaries(context)).map(
-		(summary) => ({ id: summary.uuid, name: summary.name }),
-	);
+	const designs = (await listVisibleDesignHeaders(context)).map((header) => ({
+		id: header.uuid,
+		name: header.name,
+	}));
 	if (designs.length <= maxListedDesignsInError) {
 		return new DesignTransformError(
 			"DESIGN_NOT_FOUND",

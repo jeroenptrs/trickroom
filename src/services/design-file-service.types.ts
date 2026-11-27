@@ -6,6 +6,19 @@ import type { TrickroomDesignSummary } from "../types";
  */
 export type DesignFileRevision = string;
 
+/**
+ * What listing a design needs without loading it: its id, its name and where
+ * it is stored. Read from `design.json` alone, so it costs one small file per
+ * design whatever the size of its boards.
+ */
+export type DesignFileHeader = {
+	uuid: string;
+	/** Path relative to `designs/`, as in `DesignFileSummary.file`. */
+	file: string;
+	/** The stored name, or the id when the manifest has none or cannot be read. */
+	name: string;
+};
+
 export type DesignFileSummary = TrickroomDesignSummary & {
 	revision: DesignFileRevision;
 	/**

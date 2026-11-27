@@ -261,6 +261,22 @@ describe("design folder layout", () => {
 		]);
 	});
 
+	it("lists headers from design.json without reading boards", async () => {
+		await service.writeDesignFile("folder", design(board("a")));
+		await writeLegacy("old", { version: 1, ...design(board("b")) });
+		await mkdir(folder("broken"), { recursive: true });
+		await writeFile(manifestFile("broken"), "{ not json");
+		// A board file that cannot be parsed: the header never reads it.
+		await writeFile(boardFile("folder", "a"), "{ not json");
+		await mkdir(folder("empty"), { recursive: true });
+
+		await expect(service.listDesignHeaders()).resolves.toEqual([
+			{ uuid: "broken", file: "broken/design.json", name: "broken" },
+			{ uuid: "folder", file: "folder/design.json", name: "Layout" },
+			{ uuid: "old", file: "old.json", name: "Layout" },
+		]);
+	});
+
 	it("reads a legacy design without writing and converts it on the first write", async () => {
 		await writeLegacy("old", { version: 1, ...design(board("a"), board("b")) });
 		const read = await service.readDesignFile("old");
